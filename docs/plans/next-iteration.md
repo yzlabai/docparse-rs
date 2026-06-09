@@ -61,6 +61,7 @@ M7 只给了边界 + StubOcr。接一个真实模型证明可插拔端到端。
 - [x] **标题检测**（参 veraPDF）：编号/全大写（[heading-detection](../devlogs/2026-06-09-heading-detection.md)）+ **字重入 IR `TextChunk.bold`**（[font-weight](../devlogs/2026-06-09-font-weight.md)）。**MHS 0.265→0.412→0.514**。
 - [x] **词距修复**（参 veraPDF `SPLIT_THRESHOLD_FACTOR`）：0.25→0.15em。**NID 0.601→0.626**。devlog：[word-spacing](../devlogs/2026-06-09-word-spacing-fix.md)。
 - [x] **横线 booktabs 表格检测**（`detect_ruled_tables`，宽横线界定区域 + 区内稳定列推断）。**召回 3/6→5/6、TEDS 0.028→0.101、连带 MHS→0.603、NID→0.640**。devlog：[ruled-tables](../devlogs/2026-06-09-ruled-tables.md)。
+- [x] **聚类表格识别 P1a/P1b**（`core::table_cluster`，参 veraPDF `ClusterTableConsumer` 独立重写）：header 锚定列状态机 + 吸引级联 + **按列喂入** + 精度门。找到 ruled/borderless 漏掉的**真实宽数值表**（2203 `Tags\|Bbox`、`Model\|mAP`、`Tabula` 等），**2203 表 3→4、MHS 0.694→0.708，零回归**。devlog：[P1a](../devlogs/2026-06-09-p1a-cluster-table-scaffold.md)/[P1b](../devlogs/2026-06-09-p1b-cluster-attraction.md)。🚧 P1c（结构校验替代内容启发式）待做。
 - [ ] **表格结构精度**：多值单元格/多级表头/合并单元格 + TEDS 换精确 APTED。**仍属神经领域**（Docling TableFormer），确定性收益递减。
 - [ ] 列检测修 M3 多栏左列；列表层级；title-case 同字号标题（amt/韩文）——**确定性天花板，属 N3 外接**。
 - **验收**：经 `compare_docling.py` 持续回升。
@@ -75,6 +76,8 @@ M7 只给了边界 + StubOcr。接一个真实模型证明可插拔端到端。
 - 汇总（LTR 12）：NID 0.651、MHS 0.583、含表 TEDS 0.052。
 
 **→ 达 ODL 水平的明确路径**：把表格**检出覆盖**做到 ODL 级——深挖 `veraPDF-wcag-algs` 的 `TableBorderConsumer`/`ClusterTableConsumer`（比我方 bordered+booktabs+borderless 覆盖更多表型）。确定性、可量化、可达。这是下一步最高价值项。
+
+**进展（2026-06-09，聚类表格 P1a/P1b 已落地）**：深挖 + 重写见 [refer/opendataloader-verapdf-analysis.md](../refer/opendataloader-verapdf-analysis.md) 与 [plans/cluster-table-recognizer-rust.md](cluster-table-recognizer-rust.md)。P1b 已把 `ClusterTableConsumer` 的"按列喂入 + header 锚定 + 吸引级联"做出来，**零回归**下找到真实宽数值表。但仍用**数值/≥3列**保守内容门兜精度 → 非数值/2 列表走不到，2203 仍 4 vs ODL 13。**剩余 gap 由 P1c 关闭**：实现 gap 图 + `mergeClustersByMinGaps` 列碎片合并 + 真 `Table.validate`，用结构校验替代内容启发式，方能在保精度下放开更多表型逼近 ODL 覆盖。
 
 ### N5 · 安全预检与复杂度画像 — *模块 9*（可随时插入）
 接入面的治理层，面向 agent/RAG 的安全底线。

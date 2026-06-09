@@ -274,13 +274,18 @@ elements.extend(bordered.into_iter().chain(ruled).chain(cluster).map(Element::Ta
 
 ## 8. 分期、验收、度量
 
-| 阶段 | 交付 | 验收（harness）|
-|---|---|---|
-| **P1a-1** 原语+常量+数据结构 | `prob`/`c`/`TokenRow`/`Cluster`/`Area` + 单测（uniform_prob、line_merge_prob、is_containing）| 单测过 |
-| **P1a-2** 区域状态机 | `add_token`/相 A/相 B + 合成单测（2 列表头+几行 body→区域）| 合成表识别 |
-| **P1a-3** Recognizer + validate | 五阶段（先不含弱吸引可留桩）+ `validation_score` + `check_table` | 跑通**一张**真实学术表（如 2305-pg9），lorem/1901 正文**零误判** |
-| **P1b-1** restNodes 回收 | 驱动循环开回收 | 一页多表；`compare_odl` 每文档表数接近 ODL |
-| **P1b-2** 弱 cluster 吸引 + min-gap 合并 | `merge_weak_clusters`/`merge_clusters_by_min_gaps` 完整 | **召回 3→接近 13**、含表 TEDS 明显升 |
+| 阶段 | 交付 | 验收（harness）| 状态 |
+|---|---|---|---|
+| **P1a-1** 原语+常量+数据结构 | `prob`/`c`/`TokenRow`/`Cluster`/`Area` + 单测 | 单测过 | ✅ |
+| **P1a-2** 区域状态机 | `add_token`/相 A/相 B + 合成单测 | 合成表识别 | ✅ |
+| **P1a-3** Recognizer + validate | 五阶段（弱吸引留桩）+ `validation_score` + `check_table` | 合成表识别、三件套零误判 | ✅ |
+| **P1b-i** 按列喂入 `split_columns` | sweep-line 栏间沟 + 逐栏喂状态机 | 双栏论文表行不再交错 | ✅ |
+| **P1b-ii** 弱 cluster 吸引 + 精度门 | `attract_to_header` 级联 + 内容门（数值/≥3列/逐列均长）| **零回归**下找到真实宽数值表（2203 表 3→4）| ✅ |
+| **P1c-1** gap 图 + 列碎片合并 | `min_left/right_gap` + `is_weak_cluster` 链 + `mergeClustersByMinGaps` 不动点 | 列碎片正确合并；为放开内容门铺路 | ⬜ |
+| **P1c-2** 真 `Table.validate` 替代内容门 | 行重叠分 + 列/行单调，退掉数值/≥3列启发式 | 放开非数值/2 列表**保精度**；召回向 ODL 13 逼近 | ⬜ |
+| **P1c-3** restNodes 回收 | 驱动循环开回收 | 一页多表更全 | ⬜ |
+
+> ⚠️ **实现期与原计划的偏离**：①喂入序改行扫描而非 XY-cut（§11.2）；②增了**按列喂入**`split_columns`（原计划未预见的多栏阻塞）；③P1b 暂用**内容启发式门**（数值/≥3列）兜精度而非结构校验——这是为零回归先出成果的取舍，结构校验（真 `Table.validate`+列碎片合并）下放到 **P1c** 才能退掉启发式、放开更多表型。
 
 每步跑：`compare_odl.py`（主）、`compare_docling.py`、三件套 + 2408 零回归、确定性 20×、clippy 零 warning、单测全过。
 
