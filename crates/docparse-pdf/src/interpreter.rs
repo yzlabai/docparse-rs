@@ -20,6 +20,7 @@ use docparse_core::ir::{BBox, Element, Page, TextChunk};
 use docparse_core::table::{
     detect_borderless_tables, detect_ruled_tables, detect_tables, Segment,
 };
+use docparse_core::table_cluster::detect_cluster_tables;
 use lopdf::content::Content;
 use lopdf::Object;
 use std::collections::HashMap;
@@ -260,11 +261,20 @@ pub fn interpret(input: &PageInput) -> Page {
     // Ruled (booktabs) tables bounded by wide horizontal rules — high-confidence.
     let ruled = detect_ruled_tables(&text_refs, &segments, &excl, input.number);
     excl.extend(ruled.iter().map(|t| t.bbox));
+    // Cluster (header-anchored) tables — highest coverage; high-confidence
+    // clean-grid path. Runs before the looser borderless fallback.
+    let cluster = detect_cluster_tables(&text_refs, &excl, input.number);
+    excl.extend(cluster.iter().map(|t| t.bbox));
     // Borderless (alignment-based) tables on text not in any detected table.
     let borderless = detect_borderless_tables(&text_refs, &excl);
     drop(text_refs);
     elements.extend(
-        bordered.into_iter().chain(ruled).chain(borderless).map(Element::Table),
+        bordered
+            .into_iter()
+            .chain(ruled)
+            .chain(cluster)
+            .chain(borderless)
+            .map(Element::Table),
     );
 
     Page {

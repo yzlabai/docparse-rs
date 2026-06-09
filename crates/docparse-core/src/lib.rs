@@ -26,3 +26,4 @@ pub mod quality;
 pub mod reading_order;
 pub mod synth;
 pub mod table;
+pub mod table_cluster;

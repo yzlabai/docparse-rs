@@ -319,8 +319,10 @@ veraPDF 字段 → 我方映射：`leftX=x0`、`rightX=x1`、`topY=y1`、`bottom
 - **`sortClustersUpToBottom` = 按 `first_base_line` 降序**（页顶在前）；`sortClustersLeftToRight` = 按 `x0` 升序。
 - ⚠️ 多处比较 `area.baseLine - token.firstBaseLine`：area.baseLine 是最低行、token 在下方时 token.firstBaseLine 更小 → 差>0 表示 token 在下方。逐点对齐符号。
 
-### 11.2 token 流喂入顺序：用我方 XY-cut `reading_order()`
-veraPDF 喂 tag 树顺序（=阅读顺序）。我方**用现有 `reading_order()`（XY-cut）输出的 chunk 顺序喂**——它把同一区域（含表格）的 chunk 排成连续 run，表格各行连续到达，正合流式状态机预期。**不要用裸 top→bottom**（会把表格与同 y 的旁文交错）。这也复用了我方比 veraPDF 强的那半（几何阅读顺序）。
+### 11.2 token 流喂入顺序：**行扫描序**（top→bottom 分带、带内 left→right），不是 XY-cut
+> ⚠️ 实现期修正：初版设计写"用 `reading_order()`(XY-cut)"是**错的**。XY-cut 遇到表格的强列间隙会**先竖切成列**，于是把整列（Method→alpha→beta…）连续喂入，header 行永远凑不齐。已用合成单测复现并修正。
+
+veraPDF 消费的是 tag/内容序（≈绘制序，逐行）。我方用 `scan_order()`：按 `bbox.y0` 降序分带（带内阈值 0.5·font），带内按 `x0` 升序，再展平——**逐行**到达，正合流式状态机。多栏页会把左右栏同 y 的行并成一"行"喂入，但 header 一致性检验 + 单 header 包含 + `validate` 行分离三道门把散文挡掉（已验证 `code_and_formula`/`picture` 等纯文档零误判）。
 
 ### 11.3 确定性
 - 所有 `sort` 用**稳定排序**且按几何 key（`x0`/`first_base_line`），不依赖 arena 下标顺序。
