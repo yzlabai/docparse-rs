@@ -28,12 +28,12 @@ flowchart LR
 ### N1 · 评测与基线（NID/TEDS/MHS，与 Docling 同台）— **最高优先** · *记分牌*
 **没有数字，"更好"就是口号**（roadmap §6）。也是后续所有改动的回归门。
 
-- [ ] 建 **born-digital 标注子集**（~20–30 份，覆盖单/双栏、有框/无框表、多级标题；**显式不含扫描件**——那不是我们的战场）。标注：阅读顺序、表格结构、标题层级。
-- [ ] **评分脚本**：NID（阅读顺序）、TEDS（表格结构）、MHS（标题层级），与 ODL benchmark 同尺。
-- [ ] **差异化指标自动化**：二进制体积/冷启动/吞吐/确定性/引用率（roadmap §6）落成可重复脚本，进 `docs/testresults/`。
-- [ ] 同台对比：在 born-digital 子集上跑 docparse-rs vs Docling，回填记分牌。
-- **验收**：born-digital 子集三项 ≥ Docling，或明确定位差距与归因；差异化指标全部有数。
-- **依赖/风险**：需可运行的 Docling 实例（外部、Python）做对照——**仅评测期用**，不进核心。标注成本是主要工作量；先小后大。
+- [x] **差异化指标自动化**：`scripts/metrics.sh` → `docs/testresults/2026-06-09-differentiation-metrics.md`。实测：体积 5.15MB、预热延迟 <10ms、吞吐 700 页/s、确定性 20/20、引用率 100%（运行时依赖 0）。
+- [x] **评分脚本 + 提取器就绪**：`scripts/eval/score.py`（NID/TEDS/MHS，合成自检过）+ `extract.py`（chunks→评测格式）。流水线 `docparse -f chunks | extract.py | score.py vs gt` 通。
+- [ ] ⛔ **born-digital 标注子集**——本机无；待提供 `gt.json`（本格式）即可出分。
+- [ ] ⛔ **同台对比 Docling**——本机未装 Docling（Python+模型）。
+- **验收**：差异化指标 ✅ 已有数；质量三项待 GT/Docling 解阻后回填。
+- **阻塞（需用户决策）**：装 Docling 做对照？提供/外采标注集（如 ODL benchmark 200 PDF）？**TEDS 当前为结构代理**，标注格式定后换精确 APTED。
 
 ### N2 · 服务化接口（REST → MCP）— *模块 10*
 P3 的"面向 agent 可直接调用"。CLI 已有，加库外的服务面。
