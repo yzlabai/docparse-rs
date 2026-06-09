@@ -180,7 +180,7 @@ struct Row<'a> {
 }
 
 /// A "numeric" cell: among non-space chars, >40% are digits (table data).
-fn is_numeric_cell(text: &str) -> bool {
+pub(crate) fn is_numeric_cell(text: &str) -> bool {
     let (mut digits, mut total) = (0usize, 0usize);
     for c in text.chars() {
         if c.is_whitespace() {

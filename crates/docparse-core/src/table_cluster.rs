@@ -49,14 +49,27 @@ struct XSpan {
     x1: f32,
     font: f32,
 }
+impl XSpan {
+    fn cx(&self) -> f32 {
+        (self.x0 + self.x1) / 2.0
+    }
+}
 fn tol(a: XSpan, b: XSpan) -> f32 {
     WIDTH_TOLERANCE * a.font.min(b.font)
 }
 
-/// `b` fits inside `a` (within tolerance). veraPDF `TableUtils.isContaining`.
-fn is_containing(a: XSpan, b: XSpan) -> bool {
+/// x-ranges overlap (by tolerance). veraPDF `TableUtils.areOverlapping`.
+fn are_overlapping(a: XSpan, b: XSpan) -> bool {
     let t = tol(a, b);
-    b.x0 + t > a.x0 && b.x1 < a.x1 + t
+    a.x0 + t < b.x1 && b.x0 + t < a.x1
+}
+
+/// Either center falls inside the other's tolerant span. veraPDF
+/// `TableUtils.areCenterOverlapping`.
+fn are_center_overlapping(a: XSpan, b: XSpan) -> bool {
+    let t = tol(a, b);
+    let (c1, c2) = (a.cx(), b.cx());
+    (c1 + t < b.x1 && c1 > b.x0 + t) || (c2 + t < a.x1 && c2 > a.x0 + t)
 }
 
 // ---- probability primitives (ChunksMergeUtils) ---------------------------
@@ -387,24 +400,17 @@ fn recognize(mut headers: Vec<Cluster>, mut clusters: Vec<Cluster>, page: usize)
         return None;
     }
 
-    // calculate_initial_columns: each body cluster → the header that contains it.
-    // P1a bails on any cluster without a unique container (that's a ragged table
-    // needing the P1b attraction stages). TODO P1b: merge_weak_clusters +
-    // merge_clusters_by_min_gaps to rescue these instead of bailing.
+    // Assign each body cluster to a header column via veraPDF's attraction
+    // cascade (`mergeWeakClusters`): prefer the column whose x-span best
+    // overlaps the cell, falling back to nearest center. Unlike P1a's strict
+    // containment, this rescues ragged cells (wider than their header,
+    // right-aligned) so real academic tables aren't rejected outright.
     let ncols = headers.len();
+    let header_spans: Vec<XSpan> = headers.iter().map(|h| h.span()).collect();
     for cl in &mut clusters {
-        let cs = cl.span();
-        let mut hit = None;
-        for (hi, h) in headers.iter().enumerate() {
-            if is_containing(h.span(), cs) {
-                if hit.is_some() {
-                    return None; // contained by >1 header → ambiguous
-                }
-                hit = Some(hi);
-            }
-        }
-        cl.header = Some(hit?); // none → bail (clean-table only)
-        cl.col = headers[hit.unwrap()].col;
+        let hi = attract_to_header(&header_spans, cl.span());
+        cl.header = Some(hi);
+        cl.col = headers[hi].col;
     }
 
     // build grid: row 0 = header band, rows 1.. = body by row number.
@@ -444,6 +450,13 @@ fn recognize(mut headers: Vec<Cluster>, mut clusters: Vec<Cluster>, page: usize)
         .iter()
         .map(|row| row.iter().map(|cs| make_cell(cs)).collect())
         .collect();
+
+    // Content gates (the discriminator that keeps prose out — same gates that
+    // tamed `detect_borderless_tables`): the cascade assigns *every* token a
+    // column, so without these a multi-column prose page becomes a "table".
+    if !passes_content_gates(&rows[1..], ncols) {
+        return None;
+    }
     let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
     for h in &headers {
         x0 = x0.min(h.x0());
@@ -458,6 +471,90 @@ fn recognize(mut headers: Vec<Cluster>, mut clusters: Vec<Cluster>, page: usize)
         y1 = y1.max(c.y1());
     }
     Some(Table { bbox: BBox { x0, y0, x1, y1 }, page, rows })
+}
+
+/// Pick the header column a body cell belongs to (veraPDF `mergeWeakClusters`
+/// attraction). `factor` weights center distance by how the cell relates to the
+/// header's x-span: center-overlap (tightest) < plain overlap < no overlap.
+/// (veraPDF also sets 0.0001/0.001 for containment, but containment ⊆ overlap
+/// and the later overlap check overrides, so those tiers are shadowed.) Ties
+/// resolve to the leftmost header (headers are sorted left→right).
+fn attract_to_header(headers: &[XSpan], cell: XSpan) -> usize {
+    let cc = cell.cx();
+    let mut best = 0;
+    let mut min_dist = f32::MAX;
+    for (i, h) in headers.iter().enumerate() {
+        let factor = if are_center_overlapping(cell, *h) {
+            0.01
+        } else if are_overlapping(cell, *h) {
+            0.1
+        } else {
+            1.0
+        };
+        let dist = factor * (cc - h.cx()).abs();
+        if dist < min_dist {
+            best = i;
+            min_dist = dist;
+        }
+    }
+    best
+}
+
+/// Reject prose-masquerading-as-table: a real table grid is reasonably filled,
+/// its cells are short, and a narrow grid carries numeric evidence. Mirrors the
+/// gates in `detect_borderless_tables`. `body` excludes the header row.
+fn passes_content_gates(body: &[Vec<Cell>], ncols: usize) -> bool {
+    // ≥2 body rows (a single data row is too weak) and ≥3 columns. The cascade
+    // assigns columns more loosely than the bordered/booktabs detectors, so
+    // 2-column candidates (running headers, caption fragments, prose with a
+    // leading number) dominate the false positives while every real win is ≥3
+    // columns — bordered/ruled already cover genuine 2-column tables.
+    if body.len() < 2 || ncols < 3 {
+        return false;
+    }
+    let mut filled = 0usize;
+    let mut numeric = 0usize;
+    for col in 0..ncols {
+        // Per-column stats. Every header column must carry body content (a
+        // column empty in all body rows is a phantom — veraPDF `postprocess`
+        // rejects header/column mismatch), and its cells must be SHORT. A
+        // global average is fooled by prose with a short leading token (a
+        // section number "5.1" + a paragraph), so gate per column: any column
+        // that reads like running prose (avg > 25 chars) sinks the table.
+        let mut col_filled = 0usize;
+        let mut col_len = 0usize;
+        for row in body {
+            let t = &row[col].text;
+            if !t.is_empty() {
+                col_filled += 1;
+                col_len += t.chars().count();
+                if crate::table::is_numeric_cell(t) {
+                    numeric += 1;
+                }
+            }
+        }
+        if col_filled == 0 {
+            return false;
+        }
+        if col_len as f32 / col_filled as f32 > 25.0 {
+            return false;
+        }
+        filled += col_filled;
+    }
+    let total = body.len() * ncols;
+    if filled * 3 < total {
+        return false; // density ≥ ⅓ (loose — real tables have empty cells too)
+    }
+    // Numeric evidence. Our simplified pipeline lacks veraPDF's full structural
+    // validation, so without this the recognizer mistakes equation blocks,
+    // captions, and CJK prose (numbered headings) for tables. Real data tables
+    // are numeric-heavy; this is the discriminator that makes P1b net-positive.
+    // TODO: a non-numeric text table is missed here — revisit once structural
+    // validation (gap-graph fragment merge) lands and can stand in for it.
+    if (numeric as f32) / (filled as f32) < 0.25 {
+        return false;
+    }
+    true
 }
 
 fn nan_min(a: f32, b: f32) -> f32 {
@@ -554,23 +651,92 @@ pub fn detect_cluster_tables(chunks: &[&TextChunk], exclude: &[BBox], page: usiz
     if kept.is_empty() {
         return Vec::new();
     }
-    let ordered = scan_order(&kept);
-
+    // Feed the state machine PER COLUMN. A page-wide scan interleaves the rows
+    // of side-by-side columns (in a 2-column paper a left-column table's rows
+    // alternate with right-column prose), so the header band never forms. Split
+    // on full-height gutters first, then scan each column row-by-row.
     let mut tables = Vec::new();
+    for col in split_columns(&kept) {
+        run_column(&scan_order(&col), page, &mut tables);
+    }
+    tables
+}
+
+/// Run the streaming recognizer over one column's tokens (already in scan
+/// order), recognizing a table at each area close and re-feeding the token that
+/// broke it.
+fn run_column(ordered: &[&TextChunk], page: usize, tables: &mut Vec<Table>) {
+    if ordered.is_empty() {
+        return;
+    }
     let mut area = RecognitionArea::new(ordered[0].page);
     let mut idx = 0;
     while idx < ordered.len() {
         let c = ordered[idx];
         area.add_token(c);
         if area.is_complete {
-            flush(&mut area, page, &mut tables);
+            flush(&mut area, page, tables);
             area = RecognitionArea::new(c.page);
             continue; // re-feed the breaking token into the fresh area
         }
         idx += 1;
     }
-    flush(&mut area, page, &mut tables);
-    tables
+    flush(&mut area, page, tables);
+}
+
+/// Partition chunks into page columns (the vertical cut of XY-cut), so each
+/// column's rows can be scanned independently. The gutter is the x in the
+/// central band crossed by the *fewest* chunks — a sweep-line depth minimum —
+/// which tolerates a full-width title/section-header straddling it (only a few
+/// chunks), unlike a "zero crossings" gutter. A table's own column gap never
+/// wins because body text elsewhere keeps that x's depth high. Recurses for ≥3
+/// columns; returns the input unsplit when no central x is clear enough.
+fn split_columns<'a>(chunks: &[&'a TextChunk]) -> Vec<Vec<&'a TextChunk>> {
+    let n = chunks.len();
+    // Only split page-scale chunk sets. A real multi-column page has hundreds
+    // of tokens; a lone table has dozens. Without this floor a table sitting on
+    // an otherwise-empty band would be split at its own widest column gap
+    // (nothing else keeps that x's depth high), shattering it into columns.
+    if n < 60 {
+        return vec![chunks.to_vec()];
+    }
+    let xmin = chunks.iter().map(|c| c.bbox.x0).fold(f32::MAX, f32::min);
+    let xmax = chunks.iter().map(|c| c.bbox.x1).fold(f32::MIN, f32::max);
+    let (lo, hi) = (xmin + 0.30 * (xmax - xmin), xmin + 0.70 * (xmax - xmin));
+    if hi <= lo {
+        return vec![chunks.to_vec()];
+    }
+    // Sweep depth = number of chunk x-spans covering x; find its min over [lo,hi].
+    let mut ev: Vec<(f32, i32)> = Vec::with_capacity(n * 2);
+    for c in chunks {
+        ev.push((c.bbox.x0, 1));
+        ev.push((c.bbox.x1, -1));
+    }
+    ev.sort_by(|a, b| cmp(a.0, b.0));
+    let mut depth = 0i32;
+    let mut best_depth = i32::MAX;
+    let mut best_x = f32::NAN;
+    for &(x, d) in &ev {
+        depth += d;
+        if x >= lo && x <= hi && depth < best_depth {
+            best_depth = depth;
+            best_x = x;
+        }
+    }
+    // Gutter must be nearly empty (≤2% of chunks straddle it) and split both
+    // sides substantially (each ≥20%).
+    let max_straddle = (n / 50).max(1) as i32;
+    if best_x.is_nan() || best_depth > max_straddle {
+        return vec![chunks.to_vec()];
+    }
+    let (left, right): (Vec<&TextChunk>, Vec<&TextChunk>) =
+        chunks.iter().partition(|c| (c.bbox.x0 + c.bbox.x1) / 2.0 <= best_x);
+    if left.len() * 5 < n || right.len() * 5 < n {
+        return vec![chunks.to_vec()];
+    }
+    let mut out = split_columns(&left);
+    out.extend(split_columns(&right));
+    out
 }
 
 fn flush(area: &mut RecognitionArea, page: usize, out: &mut Vec<Table>) {
@@ -635,11 +801,17 @@ mod tests {
     }
 
     #[test]
-    fn is_containing_basic() {
-        let wide = XSpan { x0: 0.0, x1: 100.0, font: 10.0 };
-        let narrow = XSpan { x0: 20.0, x1: 40.0, font: 10.0 };
-        assert!(is_containing(wide, narrow));
-        assert!(!is_containing(narrow, wide));
+    fn attraction_picks_overlapping_header() {
+        // cell centered under the right header → assigned to column 1.
+        let heads = vec![
+            XSpan { x0: 10.0, x1: 70.0, font: 10.0 },
+            XSpan { x0: 110.0, x1: 170.0, font: 10.0 },
+        ];
+        let cell = XSpan { x0: 120.0, x1: 150.0, font: 10.0 };
+        assert_eq!(attract_to_header(&heads, cell), 1);
+        // a cell wider than its header still attaches (overlap beats distance).
+        let wide = XSpan { x0: 95.0, x1: 185.0, font: 10.0 };
+        assert_eq!(attract_to_header(&heads, wide), 1);
     }
 
     #[test]
@@ -652,25 +824,30 @@ mod tests {
 
     #[test]
     fn clean_numeric_table_detected() {
-        // Header band: two wide headers spanning their columns; body numbers
-        // sit under them. 3 body rows × 2 cols.
+        // 3 wide headers spanning their columns; numeric body sits under them.
+        // 3 body rows × 3 cols, numeric-heavy — passes the ≥3-col + numeric
+        // gates that keep prose/captions out.
         let cs: Vec<TextChunk> = vec![
             chunk("Method", 10.0, 70.0, 200.0),
             chunk("Score", 110.0, 160.0, 200.0),
+            chunk("Time", 210.0, 250.0, 200.0),
             chunk("alpha", 20.0, 55.0, 180.0),
             chunk("0.91", 120.0, 150.0, 180.0),
+            chunk("12.3", 215.0, 245.0, 180.0),
             chunk("beta", 22.0, 52.0, 165.0),
             chunk("0.85", 121.0, 149.0, 165.0),
+            chunk("9.7", 216.0, 244.0, 165.0),
             chunk("gamma", 18.0, 58.0, 150.0),
             chunk("0.78", 119.0, 151.0, 150.0),
+            chunk("8.1", 217.0, 243.0, 150.0),
         ];
         let refs: Vec<&TextChunk> = cs.iter().collect();
         let tables = detect_cluster_tables(&refs, &[], 1);
-        assert_eq!(tables.len(), 1, "clean 2-col table detected");
+        assert_eq!(tables.len(), 1, "clean 3-col numeric table detected");
         let t = &tables[0];
-        assert_eq!(t.rows[0].len(), 2);
+        assert_eq!(t.rows[0].len(), 3);
         assert_eq!(t.rows[0][0].text, "Method");
-        assert_eq!(t.rows[0][1].text, "Score");
+        assert_eq!(t.rows[0][2].text, "Time");
         // 1 header row + 3 body rows.
         assert_eq!(t.rows.len(), 4);
         assert_eq!(t.rows[1][0].text, "alpha");
