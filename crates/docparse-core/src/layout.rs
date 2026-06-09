@@ -13,10 +13,14 @@ use crate::ir::{BBox, Document, Page, TextChunk};
 use crate::reading_order::reading_order;
 use std::collections::HashMap;
 
-/// Inter-chunk gap (in em) above which a word space is inserted. Below the
-/// ~0.25 em space advance so an exactly-one-space gap still breaks the word.
-/// Ref: veraPDF-wcag-algs `SPLIT_THRESHOLD_FACTOR` = 0.21.
-const WORD_GAP_EM: f32 = 0.2;
+/// Inter-chunk gap (in em) above which a word space is inserted. A space
+/// advances ~0.25 em (veraPDF `WHITE_SPACE_FACTOR`), and veraPDF splits words at
+/// 0.21 (`SPLIT_THRESHOLD_FACTOR`) — but justified body text packs word spaces
+/// tighter (~0.167 em observed), while intra-word gaps stay ~0.01 em. 0.15
+/// sits in that band: it catches tight word spaces without splitting words.
+/// Tuned against the Docling born-digital set (NID peaks at 0.15; 0.12
+/// over-splits, 0.25 under-splits). See scripts/eval/compare_docling.py.
+const WORD_GAP_EM: f32 = 0.15;
 
 /// Whether a chunk's center lies inside any of the given (table) boxes — used
 /// to exclude table content from line/paragraph reconstruction.
