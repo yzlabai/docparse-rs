@@ -30,10 +30,10 @@ flowchart LR
 
 - [x] **差异化指标自动化**：`scripts/metrics.sh` → `docs/testresults/2026-06-09-differentiation-metrics.md`。实测：体积 5.15MB、预热延迟 <10ms、吞吐 700 页/s、确定性 20/20、引用率 100%（运行时依赖 0）。
 - [x] **评分脚本 + 提取器就绪**：`scripts/eval/score.py`（NID/TEDS/MHS，合成自检过）+ `extract.py`（chunks→评测格式）。流水线 `docparse -f chunks | extract.py | score.py vs gt` 通。
-- [ ] ⛔ **born-digital 标注子集**——本机无；待提供 `gt.json`（本格式）即可出分。
-- [ ] ⛔ **同台对比 Docling**——本机未装 Docling（Python+模型）。
-- **验收**：差异化指标 ✅ 已有数；质量三项待 GT/Docling 解阻后回填。
-- **阻塞（需用户决策）**：装 Docling 做对照？提供/外采标注集（如 ODL benchmark 200 PDF）？**TEDS 当前为结构代理**，标注格式定后换精确 APTED。
+- [x] **与 Docling 同台**（用户提供 `tmp/refer/docling` 源码+测试集解阻）：`scripts/eval/{docling_gt_extract,compare_docling}.py` 拿 Docling 自带 13 份 born-digital 测试 PDF 的 **groundtruth（=Docling 自身输出）** 对比，**无需安装/运行 Docling**。结果见 [testresults/2026-06-09-docling-comparison.md](../testresults/2026-06-09-docling-comparison.md)。
+- **测得（与 Docling 一致度，非人工真值）**：LTR 10 份 NID **0.600**、MHS **0.257**；含表 6 份 TEDS **≈0.006**（表格检出召回 **1/6**）；RTL 3 份 NID≈0（超范围）。13/13 解析 0 panic。
+- **数据驱动的结论**：① 最大差距是**无框表格**（学术 booktabs）——M4 只做有框 → N4 无框表格**坐实为最高优先**；② 标题检测（字号众数）弱于 Docling 模型标注 → N4 标题分级；③ 阅读顺序中等一致；④ RTL 未支持（记录在案）。
+- **仍待**：真·人工真值（当前是 agreement-with-Docling，非 accuracy）；TEDS 换精确 APTED；用户若外采人工标注集可进一步出"准确率"。
 
 ### N2 · 服务化接口（REST → MCP）— *模块 10*
 P3 的"面向 agent 可直接调用"。CLI 已有，加库外的服务面。
@@ -53,8 +53,9 @@ M7 只给了边界 + StubOcr。接一个真实模型证明可插拔端到端。
 - **验收**：扫描件从 0 文本到可检索；数字页**仍零模型**（成本不破）。
 - **依赖/风险**：外部 OCR 引擎/服务（进程或网络），**不进纯 Rust 核心**（身份约束）；选型先征询。
 
-### N4 · 语义层续：无框表格 / 列表 / 多栏列检测 — *模块 4*
+### N4 · 语义层续：无框表格 / 列表 / 多栏列检测 — *模块 4* · **数据已坐实为最高结构优先**
 把 M4 的有框表格扩到更难的结构；顺带修 M3 多栏左列重排限制。
+> N1 同台数据：含表文档表格检出召回仅 **1/6**、TEDS≈0——学术 PDF 多为**无框表格**，是与 Docling 的最大结构差距。标题检测也需从字号众数升级（MHS 0.257）。
 
 - [ ] **列检测**：从文本对齐推断列边界（产出列右缘 → 修 M3 多栏左列 fill_x）。
 - [ ] **无框表格**：靠列/行对齐而非 ruling line（born-digital 仍可确定性求解；真扫描表留 N3 外接）。

@@ -22,32 +22,26 @@ Usage:
   score.py --selftest               # run synthetic assertions
 """
 import sys, json, re
+from difflib import SequenceMatcher
 
 
 def _norm(s):
     return re.sub(r"\s+", " ", str(s).strip()).lower()
 
 
-def _indel_sim(a, b):
-    """1 - normalized indel (insert/delete only) distance between two lists."""
-    if not a and not b:
-        return 1.0
-    n, m = len(a), len(b)
-    # LCS length via DP, then indel distance = n + m - 2*lcs.
-    dp = [[0] * (m + 1) for _ in range(n + 1)]
-    for i in range(n):
-        for j in range(m):
-            dp[i + 1][j + 1] = (
-                dp[i][j] + 1 if a[i] == b[j] else max(dp[i][j + 1], dp[i + 1][j])
-            )
-    lcs = dp[n][m]
-    dist = n + m - 2 * lcs
-    return 1.0 - dist / (n + m) if (n + m) else 1.0
+def _words(seq):
+    """Flatten a list of block texts to a normalized word sequence — robust to
+    how each system segments blocks (NID compares reading order + content)."""
+    return " ".join(_norm(x) for x in seq).split()
 
 
 def nid(pred, gt):
-    return _indel_sim([_norm(x) for x in pred.get("reading_order", [])],
-                      [_norm(x) for x in gt.get("reading_order", [])])
+    """Reading-order + content agreement: order-sensitive word-sequence
+    similarity (difflib ratio in [0,1]). Robust to block segmentation."""
+    a, b = _words(pred.get("reading_order", [])), _words(gt.get("reading_order", []))
+    if not a and not b:
+        return 1.0
+    return SequenceMatcher(None, a, b, autojunk=False).ratio()
 
 
 def _teds_one(pt, gt):
@@ -88,8 +82,12 @@ def teds(pred, gt):
 
 
 def mhs(pred, gt):
-    ph = {(lvl, _norm(t)) for lvl, t in pred.get("headings", [])}
-    gh = {(lvl, _norm(t)) for lvl, t in gt.get("headings", [])}
+    """Heading-hierarchy agreement: F1 over normalized heading TEXT. Level
+    numbers are ignored — two systems number levels differently, so we measure
+    'are the same headings identified'. (Level-aware refinement is a TODO once
+    a single annotation scheme is fixed.)"""
+    ph = {_norm(t) for _, t in pred.get("headings", [])}
+    gh = {_norm(t) for _, t in gt.get("headings", [])}
     if not ph and not gh:
         return 1.0
     tp = len(ph & gh)
