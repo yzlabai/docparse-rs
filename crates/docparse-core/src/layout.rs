@@ -246,8 +246,19 @@ impl Acc {
         }
     }
     fn extend(&mut self, line: &Line, text: &str, numeric: bool) {
-        self.text.push(' ');
-        self.text.push_str(text);
+        // De-hyphenate a soft line-break hyphen: "com-" + "pact" → "compact"
+        // (letter before the trailing hyphen, lowercase start next). Standard
+        // in text extractors; matches Docling's rejoining.
+        let soft_hyphen = self.text.ends_with('-')
+            && self.text.chars().rev().nth(1).is_some_and(|c| c.is_alphabetic())
+            && text.chars().next().is_some_and(|c| c.is_lowercase());
+        if soft_hyphen {
+            self.text.pop();
+            self.text.push_str(text);
+        } else {
+            self.text.push(' ');
+            self.text.push_str(text);
+        }
         self.cy = line.cy;
         self.size = self.size.max(line.size);
         self.x1 = line.x1;
@@ -476,6 +487,18 @@ mod tests {
         let blocks = group_blocks(&lines, 10.0, FILL);
         assert!(blocks[0].heading);
         assert!(!blocks[1].heading);
+    }
+
+    #[test]
+    fn soft_hyphen_rejoined_across_lines() {
+        let lines = vec![
+            line("a wrapped line ending in com-", 10.0, 200.0),
+            line("pact words continuing here", 10.0, 188.0),
+        ];
+        let blocks = group_blocks(&lines, 10.0, FILL);
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0].text.contains("compact"), "got: {}", blocks[0].text);
+        assert!(!blocks[0].text.contains("com-"), "hyphen removed");
     }
 
     #[test]
