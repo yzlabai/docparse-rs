@@ -33,6 +33,13 @@ flowchart LR
 - [x] **与 Docling 同台**（用户提供 `tmp/refer/docling` 源码+测试集解阻）：`scripts/eval/{docling_gt_extract,compare_docling}.py` 拿 Docling 自带 13 份 born-digital 测试 PDF 的 **groundtruth（=Docling 自身输出）** 对比，**无需安装/运行 Docling**。结果见 [testresults/2026-06-09-docling-comparison.md](../testresults/2026-06-09-docling-comparison.md)。
 - **测得（与 Docling 一致度，非人工真值）**：LTR 10 份 NID **0.600**、MHS **0.257**；含表 6 份 TEDS **≈0.006**（表格检出召回 **1/6**）；RTL 3 份 NID≈0（超范围）。13/13 解析 0 panic。
 - **数据驱动的结论**：① 最大差距是**无框表格**（学术 booktabs）——M4 只做有框 → N4 无框表格**坐实为最高优先**；② 标题检测（字号众数）弱于 Docling 模型标注 → N4 标题分级；③ 阅读顺序中等一致；④ RTL 未支持（记录在案）。
+- [x] **与 ODL 同台**：`scripts/eval/{odl_extract,compare_odl}.py`，全 15 份 born-digital。ODL 是确定性同类，水平可达。
+- **⚠️ 评测参照 bug 修复（2026-06-09）**：两个 GT 提取器都**漏列表文本**（`odl_extract` 没递归 `list items`；`docling_gt_extract` 跳过 `group`），一直**低估**我方 NID。修复后（我方产出未变）：
+  - **ODL 同台**：LTR NID **0.651→0.722**、MHS **0.584→0.614**（标题去代码行+裁连续标题串）。
+  - **Docling 同台**：LTR NID **0.698→0.763**、MHS **0.612→0.625**。
+  - 逐文档：`multi_page` 0.600→0.984、`2305` 0.751→0.921、`redp5110` 0.813→0.972。
+  - devlog：[benchmark-harness-fixes](../devlogs/2026-06-09-benchmark-harness-fixes.md)。
+- **现状判定**：**clean born-digital LTR 已达 docling/ODL 水平**（`multi_page`/`code`/`picture`/`redp5110`/`2305` 均 0.92–0.99）。聚合被两类**确定性天花板**拖低：CJK 复杂版面（`skipped_*`/`normal_4pages`）、最难双栏论文首页（`2203`/`2206` 作者块+版权脚注阅读顺序）——属 N3 enhancer/版面模型，非确定性可达。
 - **仍待**：真·人工真值（当前是 agreement-with-Docling，非 accuracy）；TEDS 换精确 APTED；用户若外采人工标注集可进一步出"准确率"。
 
 ### N2 · 服务化接口（REST → MCP）— *模块 10*
