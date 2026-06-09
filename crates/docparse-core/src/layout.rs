@@ -312,7 +312,33 @@ pub fn group_blocks(lines: &[Line], body_size: f32, fill_x: f32) -> Vec<Block> {
     if let Some(a) = cur {
         blocks.push(make_block(a, body_size));
     }
+    demote_heading_runs(&mut blocks);
     blocks
+}
+
+/// Demote long runs of consecutive headings to body. A real document never
+/// stacks many section headers back-to-back with no body between — but a code
+/// block (each line `RETURN`/`CASE`/`END` tripping the all-caps/size rule) or an
+/// over-segmented region does, flooding the heading set (redp5110: 100 headings
+/// vs 22). Keep the first of a long run as a plausible header; demote the rest.
+fn demote_heading_runs(blocks: &mut [Block]) {
+    const MAX_RUN: usize = 3;
+    let mut i = 0;
+    while i < blocks.len() {
+        if !blocks[i].heading {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < blocks.len() && blocks[i].heading {
+            i += 1;
+        }
+        if i - start >= MAX_RUN {
+            for b in &mut blocks[start + 1..i] {
+                b.heading = false;
+            }
+        }
+    }
 }
 
 /// Recognize a heading by text shape (single short line): a numbered section
