@@ -282,9 +282,34 @@ pub fn group_blocks(lines: &[Line], body_size: f32, fill_x: f32) -> Vec<Block> {
     blocks
 }
 
+/// Recognize a heading by text shape (single short line): a numbered section
+/// ("1 Introduction", "5.1 Hyper Parameter…") or an all-caps title
+/// ("ABSTRACT", "REFERENCES"). Catches the bold/body-size section headers that
+/// the font-size rule misses in 2-column papers. Conservative length gate
+/// avoids flagging sentences/list items.
+fn is_heading_text(t: &str) -> bool {
+    let t = t.trim();
+    let nchars = t.chars().count();
+    if !(2..=55).contains(&nchars) {
+        return false;
+    }
+    let words: Vec<&str> = t.split_whitespace().collect();
+    let numbered = words.len() >= 2
+        && {
+            let w = words[0];
+            w.chars().all(|c| c.is_ascii_digit() || c == '.') && w.chars().any(|c| c.is_ascii_digit())
+        }
+        && words[1].chars().next().is_some_and(|c| c.is_uppercase());
+    let letters: Vec<char> = t.chars().filter(|c| c.is_alphabetic()).collect();
+    let all_caps = letters.len() >= 2 && letters.iter().all(|c| c.is_uppercase());
+    numbered || all_caps
+}
+
 fn make_block(a: Acc, body_size: f32) -> Block {
-    // A heading is a short (single-line) block notably larger than body text.
-    let heading = a.lines == 1 && body_size > 0.0 && a.size > body_size * 1.25;
+    // A heading is a single-line block that is notably larger than body text,
+    // or whose text shape (numbered / all-caps) reads like a section header.
+    let heading =
+        a.lines == 1 && ((body_size > 0.0 && a.size > body_size * 1.25) || is_heading_text(&a.text));
     Block {
         text: a.text,
         size: a.size,
@@ -375,6 +400,20 @@ mod tests {
         assert_eq!(blocks.len(), 2);
         assert_eq!(blocks[0].text, "First line of para second line continues");
         assert_eq!(blocks[1].text, "A new paragraph");
+    }
+
+    #[test]
+    fn numbered_and_allcaps_lines_are_headings() {
+        // Body-size lines that read like section headers (gaps > 18 → separate).
+        let lines = vec![
+            line("1 Introduction", 10.0, 200.0),
+            line("ABSTRACT", 10.0, 178.0),
+            line("ordinary body sentence continues here", 10.0, 156.0),
+        ];
+        let blocks = group_blocks(&lines, 10.0, FILL);
+        assert!(blocks[0].heading, "numbered section header");
+        assert!(blocks[1].heading, "all-caps header");
+        assert!(!blocks[2].heading, "body text is not a heading");
     }
 
     #[test]
