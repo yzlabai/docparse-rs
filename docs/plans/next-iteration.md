@@ -60,12 +60,12 @@ M7 只给了边界 + StubOcr。接一个真实模型证明可插拔端到端。
 - [x] **无框表格检测**（`detect_borderless_tables`，对齐驱动 + 内容门控防双栏版面误判）。**召回 1/6→3/6、TEDS 0.006→0.028**。devlog：[n4-borderless-tables](../devlogs/2026-06-09-n4-borderless-tables.md)。
 - [x] **标题检测**（参 veraPDF）：编号/全大写（[heading-detection](../devlogs/2026-06-09-heading-detection.md)）+ **字重入 IR `TextChunk.bold`**（[font-weight](../devlogs/2026-06-09-font-weight.md)）。**MHS 0.265→0.412→0.514**。
 - [x] **词距修复**（参 veraPDF `SPLIT_THRESHOLD_FACTOR`）：0.25→0.15em。**NID 0.601→0.626**。devlog：[word-spacing](../devlogs/2026-06-09-word-spacing-fix.md)。
-- [ ] **列检测**：文本对齐推断列边界（修 M3 多栏左列 + 提 TEDS 结构精度）。**TEDS（表格结构）仍是最大差距**。
-- [ ] 合并单元格 row/col span；单元格文本边界（防渗漏）；TEDS 换精确 APTED。
-- [ ] 列表层级；title-case 同字号标题（amt_handbook 类）需版面模型——**确定性天花板，属 N3 外接**。
+- [x] **横线 booktabs 表格检测**（`detect_ruled_tables`，宽横线界定区域 + 区内稳定列推断）。**召回 3/6→5/6、TEDS 0.028→0.101、连带 MHS→0.603、NID→0.640**。devlog：[ruled-tables](../devlogs/2026-06-09-ruled-tables.md)。
+- [ ] **表格结构精度**：多值单元格/多级表头/合并单元格 + TEDS 换精确 APTED。**仍属神经领域**（Docling TableFormer），确定性收益递减。
+- [ ] 列检测修 M3 多栏左列；列表层级；title-case 同字号标题（amt/韩文）——**确定性天花板，属 N3 外接**。
 - **验收**：经 `compare_docling.py` 持续回升。
 
-> **本会话进展（参 veraPDF/ODL/Docling 源码 + harness 数据驱动）**：表格召回 1/6→3/6；NID 0.601→**0.626**；MHS 0.265→**0.514**。速度始终领先（5MB 单二进制 / <10ms / 700 页/s / 零依赖）。**确定性已近天花板**于：① TEDS 表格结构（神经领域，需列推断/APTED 或外接）；② 同字号/无 bold/非拉丁标题（amt/韩文，属 N3 外接模型）。
+> **本会话进展（参 veraPDF/ODL/Docling 源码 + harness 数据驱动）**：表格召回 **1/6→5/6**；TEDS **0.006→0.101**；NID 0.601→**0.640**；MHS 0.265→**0.603**。速度始终领先（5MB 单二进制 / <10ms / 700 页/s / 零依赖）。**剩余大头是表格结构精度**（神经领域，Docling TableFormer）与同字号/非拉丁标题（属 N3 外接模型）——确定性已近天花板。
 
 ### N5 · 安全预检与复杂度画像 — *模块 9*（可随时插入）
 接入面的治理层，面向 agent/RAG 的安全底线。
