@@ -19,6 +19,10 @@ struct Cli {
     /// Write to this file instead of stdout.
     #[arg(short, long)]
     out: Option<PathBuf>,
+
+    /// Print a parse-quality report (coverage/garble/flags) as JSON to stderr.
+    #[arg(long)]
+    quality: bool,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -39,6 +43,10 @@ fn main() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("no parser supports {}", cli.input.display()))?;
 
     let doc = parser.parse(&cli.input)?;
+
+    if cli.quality {
+        eprintln!("{}", docparse_core::quality::analyze(&doc).to_json());
+    }
 
     let rendered = match cli.format {
         Format::Json => output::to_json(&doc)?,
