@@ -318,22 +318,26 @@ fn show_text(
         + ts.char_spacing * glyphs as f64
         + ts.word_spacing * spaces as f64)
         * ts.h_scale;
-    let (x_start, y_base) = trm.apply(0.0, 0.0);
-    let (x_end, _) = trm.apply(w_text, 0.0);
+    // Axis-aligned bbox from the 4 transformed corners of the text rectangle
+    // [0,w_text] × [0,font_size] — correct under rotation (rotated stamps would
+    // otherwise collapse to zero width).
+    let fs = ts.font_size;
+    let corners = [
+        trm.apply(0.0, 0.0),
+        trm.apply(w_text, 0.0),
+        trm.apply(0.0, fs),
+        trm.apply(w_text, fs),
+    ];
     let height = ts.font_size * trm.y_scale();
 
     if !text.trim().is_empty() {
-        let x0 = x_start.min(x_end) as f32;
-        let x1 = x_start.max(x_end) as f32;
-        let y0 = y_base as f32;
+        let x0 = corners.iter().map(|c| c.0).fold(f64::INFINITY, f64::min) as f32;
+        let x1 = corners.iter().map(|c| c.0).fold(f64::NEG_INFINITY, f64::max) as f32;
+        let y0 = corners.iter().map(|c| c.1).fold(f64::INFINITY, f64::min) as f32;
+        let y1 = corners.iter().map(|c| c.1).fold(f64::NEG_INFINITY, f64::max) as f32;
         out.push(Element::Text(TextChunk {
             text,
-            bbox: BBox {
-                x0,
-                y0,
-                x1,
-                y1: y0 + height as f32,
-            },
+            bbox: BBox { x0, y0, x1, y1 },
             font_size: height as f32,
             font: ts.font.clone(),
             page,

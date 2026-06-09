@@ -22,6 +22,12 @@ use std::collections::HashMap;
 /// over-splits, 0.25 under-splits). See scripts/eval/compare_docling.py.
 const WORD_GAP_EM: f32 = 0.15;
 
+/// A vertical/rotated text run (taller than wide, multi-char) — marginalia like
+/// a sideways stamp, not part of the body flow.
+fn is_vertical(c: &TextChunk) -> bool {
+    c.text.chars().count() >= 4 && c.bbox.height() > c.bbox.width() * 2.0
+}
+
 /// Whether a chunk's center lies inside any of the given (table) boxes — used
 /// to exclude table content from line/paragraph reconstruction.
 pub fn in_any(chunk: &TextChunk, boxes: &[crate::ir::BBox]) -> bool {
@@ -60,6 +66,15 @@ pub struct Block {
 /// gap wider than ~0.25 em starts a new word. Callers pass the chunks to use
 /// (e.g. with table content already excluded).
 pub fn reconstruct_lines(chunks: &[&TextChunk]) -> Vec<Line> {
+    // Drop vertical/rotated marginalia (e.g. the sideways arXiv stamp): a
+    // multi-char chunk whose box is much taller than wide. It otherwise
+    // pollutes reading order and gets misread as a heading.
+    let chunks: Vec<&TextChunk> = chunks
+        .iter()
+        .copied()
+        .filter(|c| !is_vertical(c))
+        .collect();
+    let chunks = chunks.as_slice();
     let order = reading_order(chunks);
 
     let mut lines: Vec<Line> = Vec::new();
@@ -411,6 +426,31 @@ mod tests {
         assert_eq!(blocks.len(), 2);
         assert_eq!(blocks[0].text, "First line of para second line continues");
         assert_eq!(blocks[1].text, "A new paragraph");
+    }
+
+    #[test]
+    fn vertical_marginalia_is_excluded() {
+        let normal = TextChunk {
+            text: "hello world".into(),
+            bbox: BBox { x0: 0.0, y0: 0.0, x1: 50.0, y1: 10.0 },
+            font_size: 10.0,
+            font: None,
+            page: 1,
+            confidence: 1.0,
+            bold: false,
+        };
+        let stamp = TextChunk {
+            text: "arXiv:1234".into(),
+            bbox: BBox { x0: 0.0, y0: 0.0, x1: 5.0, y1: 40.0 }, // tall, narrow
+            font_size: 10.0,
+            font: None,
+            page: 1,
+            confidence: 1.0,
+            bold: false,
+        };
+        let lines = reconstruct_lines(&[&normal, &stamp]);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].text, "hello world");
     }
 
     #[test]
