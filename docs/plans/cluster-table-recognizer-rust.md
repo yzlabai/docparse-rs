@@ -307,3 +307,208 @@ elements.extend(bordered.into_iter().chain(ruled).chain(cluster).map(Element::Ta
 - **可复用资产**：`prob` 原语（按字号归一的合并概率）也能反哺段落/标题（P3/P4）。
 
 > 结论：这份设计把 P1 拆成可逐步交付、每步可量化的 Rust 工程。**先 P1a 跑通一张表 + 零误判**，再 P1b 拉满覆盖。是把 docparse-rs 在表格维度推到 ODL 确定性水平的明确路径。
+
+---
+
+## 11. 关键设计决策（实现前定死，避免返工）
+
+### 11.1 坐标与 baseline 约定（我方 BBox: y 向上，y0=底 y1=顶）
+veraPDF 字段 → 我方映射：`leftX=x0`、`rightX=x1`、`topY=y1`、`bottomY=y0`、`centerX=(x0+x1)/2`、`width=x1-x0`。
+- **baseLine**：文本基线。我方单 chunk 近似 `base_line = bbox.y0`（忽略 descender，足够；如要更准可用 `y0 + 0.1*font`，但全程一致即可）。
+- **`fontSize` = 成员 max；`baseLine` = 成员 min（最低行）；`firstBaseLine` = 首行（最高 y）基线**。`TokenRow`/`Cluster` 的 `add` 维护：`font_size = max`、`base_line = min`、`first_base_line = 第一行（top）基线`。
+- **`sortClustersUpToBottom` = 按 `first_base_line` 降序**（页顶在前）；`sortClustersLeftToRight` = 按 `x0` 升序。
+- ⚠️ 多处比较 `area.baseLine - token.firstBaseLine`：area.baseLine 是最低行、token 在下方时 token.firstBaseLine 更小 → 差>0 表示 token 在下方。逐点对齐符号。
+
+### 11.2 token 流喂入顺序：用我方 XY-cut `reading_order()`
+veraPDF 喂 tag 树顺序（=阅读顺序）。我方**用现有 `reading_order()`（XY-cut）输出的 chunk 顺序喂**——它把同一区域（含表格）的 chunk 排成连续 run，表格各行连续到达，正合流式状态机预期。**不要用裸 top→bottom**（会把表格与同 y 的旁文交错）。这也复用了我方比 veraPDF 强的那半（几何阅读顺序）。
+
+### 11.3 确定性
+- 所有 `sort` 用**稳定排序**且按几何 key（`x0`/`first_base_line`），不依赖 arena 下标顺序。
+- `columns` 用 `Vec<(headerId, ClusterId)>` 或 `BTreeMap`，输出按 `col_number` 排序遍历——**不要 HashMap 迭代序**进输出。
+- 无 `Date/random`。结果逐字节稳定（与现有不变量一致）。
+
+### 11.4 性能
+逐页跑；token 流 O(n)，合并阶段 O(clusters²) 但每表 clusters 小（几十）。整页 chunk 数千时，区域随表关闭并重置，不会全页平方。无忧。
+
+### 11.5 **最小 P1a 子集（可砍一半工作量先出成果）**
+检测**规则表**（每 body cell 被恰好一个 header `isContaining`）只需：区域状态机 + `setup_row_numbers` + `setup_col_numbers` + `calculate_initial_columns`（单 header 包含归列）+ `construct_table` + `validate`。
+**P1a 可把 `merge_weak_clusters` / `merge_clusters_by_min_gaps` 留空桩**（直接 `return`）——规则表照样出。先用它跑通一张 booktabs/学术结果表 + 三件套零误判。**P1b 再补这两个吸引阶段**拿下不规则表（短/空/右对齐 cell），覆盖才从"规则表"涨到 ODL 级。这是把 P1 风险前移、早见效的关键拆法。
+
+---
+
+## 附录 · 精确算法规格（逐行译自 veraPDF，独立重写）
+
+> 常量：`WIDTH_TOLERANCE=0.33`、`ONE_LINE_TOLERANCE=0.9`、`NEXT_LINE_TOLERANCE=1.05`、`NEXT_LINE_MAX_TOLERANCE=1.5`、`TABLE_GAP=3.0`、`NEXT_TOKEN_LENGTH=1.2`、`MERGE_PROB=0.75`、`HEADERS_PROB=0.75`、`TABLE_PROB=0.75`、`ROW_WIDTH=1.2`、`EPSILON=1e-18`。下方 `b:&BBox, f:f32` 表 (bbox, font_size)。
+
+### A. 几何谓词（`TableUtils`）
+```
+tol(f1,f2) = 0.33 * min(f1,f2)
+is_containing(a,fa, b,fb):  // b ⊂ a
+    t=tol(fa,fb); b.x0 + t > a.x0  &&  b.x1 < a.x1 + t
+are_overlapping(a,fa,b,fb):
+    t=tol(fa,fb); a.x0 + t < b.x1  &&  b.x0 + t < a.x1
+are_center_overlapping(a,fa,b,fb):     // 任一中心落在对方 (x0+t, x1-t)
+    t=tol; c1=a.cx; c2=b.cx
+    (c1+t < b.x1 && c1 > b.x0+t) || (c2+t < a.x1 && c2 > a.x0+t)
+are_strong_center_overlapping(a,fa,b,fb): // 两中心都落在对方 (x0+t, x1-t)
+    t=tol; c1=a.cx; c2=b.cx
+    !(c1+t > b.x1 || c1 < b.x0+t) && !(c2+t > a.x1 || c2 < a.x0+t)
+is_any_containing = is_containing(a,b) || is_containing(b,a)
+are_strong_containing = is_any_containing && are_strong_center_overlapping
+row_gap_factor(row, next) = (row.base_line - next.base_line) / next.font_size
+```
+
+### B. 概率原语（`ChunksMergeUtils`）
+```
+uniform_prob((lo,hi), x, width):   // 平顶 + 线性下降
+    if x in [lo-eps, hi+eps]: 1
+    if x < lo-width-eps || x > hi+width+eps: 0
+    dev = if x < lo+eps { lo - x } else { x - hi }
+    (width - dev) / width
+normal_line_prob(dx, dy, (p0,p1)) = 1 - p0*dx - p1*dy        // 不 clamp（调用方处理）
+to_line_prob_fn(dx, dy, (p0,p1,p2)) = 1 - p0*dx² - (p1*dy - p2*dx)*dy
+// 同行合并（is_table 路径，P1a MVP 可省上/下标救援）：
+char_spacing_prob(a, b):           // a=line 末 chunk, b=候选首 chunk
+    end = a.x1 - trailing_spaces(a.text) * 0.25 * a.font
+    start = b.x0 + leading_spaces(b.text) * 0.25 * b.font
+    dist = |end - start| / max(a.font, b.font)
+    uniform_prob((0.0, 0.67), dist, 0.33)
+line_merge_prob(a, b):             // ≈ toLineMergeProbability(., ., is_table=true)
+    Δbase = |a.base_line - b.base_line| / max(a.font, b.font)
+    Δfont = |a.font - b.font| / max(a.font, b.font)
+    char_spacing_prob(a,b) * max(0, normal_line_prob(Δbase, Δfont, (2.0, 0.033)))
+```
+
+### C. `RecognitionArea`（状态机）—— 逐条件
+```
+add_token(t):
+    if t.page != self.page: is_complete=true; return
+    if !has_complete_headers:
+        if belongs_to_headers_area(t): expand_headers(t)
+        else:
+            headers_base_line = base_line
+            if check_headers(): has_complete_headers=true; add_cluster(t)
+            else: is_complete=true
+    else: add_cluster(t)
+
+belongs_to_headers_area(t):
+    if headers.empty: true
+    else if base_line - t.first_base_line > adaptive_next_line_tol * t.font: false
+    else if t.y0 (bottomY) > bbox.y1 (topY) + TABLE_GAP * t.font: false
+    else: true
+
+// 贪心建 header 列（首个 expand_header 命中设 current；其余 join_headers 桥接则并列）
+expand_header(h, t):    // h=已存在 header 列，t=token
+    Δ = min(|h.base_line - t.base_line|, |h.first_base_line - t.first_base_line|)
+    if Δ < ONE_LINE_TOLERANCE * t.font  &&  line_merge_prob(h.last_token, t) > MERGE_PROB:
+        h.append_to_last_line(t); lower base_line; return true        // 同行（同 cell 横扩）
+    if h.bbox.x0 < t.x1 && t.x0 < h.bbox.x1:                          // x 重叠 → 下一行
+        lsf = Δ / t.font
+        if lsf < NEXT_LINE_MAX_TOLERANCE:
+            if adaptive_next_line_tol < lsf: adaptive_next_line_tol = lsf * NEXT_LINE_TOLERANCE  // ★ 学行距
+            h.append_new_line(t); lower base_line; return true
+    return false
+join_headers(cur, h, t): if h.bbox.x0 < t.x1 && t.x0 < h.bbox.x1 { cur.merge(h); return true } else false
+
+check_headers():
+    if headers.len < 2: false
+    avgF=avg(first_base_line); avgL=avg(last_base_line); avgC=avg((first+last)/2)
+    maxTop=max |avgF - h.first_base_line|/h.font ; maxBot, maxCen 同理
+    1.0 - min(maxTop, maxBot, maxCen) > HEADERS_PROB
+
+add_cluster(t):
+    if t.page != self.page: is_complete=true; return
+    if base_line - t.first_base_line > TABLE_GAP * t.font
+       || headers_base_line < t.base_line
+       || (border attached && !border.contains(t.bbox)):
+        is_complete=true; return
+    if min(bbox.x0 - t.x0, t.x1 - bbox.x1) > NEXT_TOKEN_LENGTH * t.font:  // 两侧都溢出
+        is_complete=true; return
+    push single-row cluster; bbox.union; lower base_line; is_valid=true
+```
+
+### D. `TableRecognizer`（五阶段）
+```
+setup_row_numbers():   // clusters 已 sortUpToBottom（first_base_line 降序）
+    row=1; anchor=clusters[0]; anchor.rows[*].row_number=1
+    for c in clusters[1..]:
+        tol = c.first_row.font * ONE_LINE_TOLERANCE
+        if anchor.base_line > c.first_base_line + tol: row+=1; anchor=c
+        else if anchor.base_line > c.base_line + tol: anchor=c
+        c.rows[*].row_number = row
+    num_rows = row + 1
+setup_col_numbers(): sort headers left→right; header[i].col_number = i
+
+calculate_initial_columns():       // 强 header（恰一个包含）→ 归列
+    for c in clusters:
+        if c.header is None: c.header = the unique header h with is_containing(h, c) else None
+        add_cluster_to_column_by_header(c)   // columns: header → cluster；同 header 则 merge
+    update_min_gaps()
+
+merge_weak_clusters():             // P1b：无 header 的弱 cluster 按级联吸引到最近 header
+    for c where is_weak_cluster(c, headers):
+        best=None; min_dist=INF
+        for h in headers:
+            factor = if are_strong_containing(c,h) {0.0001} else if is_containing(h,c) {0.001} else {1.0}
+            if are_center_overlapping(c,h) {factor=0.01} else if are_overlapping(c,h) {factor=0.1}  // 覆盖前者
+            dist = factor * |c.cx - h.cx|
+            if dist < min_dist: best=h; min_dist = dist - EPSILON   // ★ 复制 -EPSILON 怪癖
+        c.header = best; add_cluster_to_column_by_header(c)
+    update_min_gaps()
+
+merge_clusters_by_min_gaps():      // P1b：互为最近邻 + 局部最小 gap → 粘列碎片，迭代到不动点
+    loop until clusters.len stable:
+        for c (id live, has min_right_gap):
+            rg=c.min_right_gap; lg=c.min_left_gap; nc=rg.link
+            nrg=nc.min_right_gap; nlg=nc.min_left_gap
+            if c == nlg.link && (c.header is None || nc.header is None)
+               && (lg is None || rg.gap < lg.gap) && (nrg is None || nlg.gap < nrg.gap):
+                if nc.header is Some: nc.merge(c); c.id=None  else: c.merge(nc); nc.id=None
+
+is_weak_cluster(c, headers):       // 无 header 且未被相邻列夹住
+    if c.header is Some: return false
+    leftHeader  = 沿 min_left_gap 链走到第一个有 header 的邻居的 header（带 visited 防环；走空→None）
+    rightHeader = 沿 min_right_gap 链走（同上）
+    if leftHeader is None:  return rightHeader is None || rightHeader.col > 0
+    else: return rightHeader is None || rightHeader.col < headers.len-1
+                 || rightHeader.col - leftHeader.col > 1
+
+construct_table():                 // postprocess 先 bail：headers.len < clusters.len 或任一 cluster 无 header/col
+    for c: c.sort_and_merge_rows(); c.col_number = c.header.col_number
+    cols = columns.values sorted by col_number
+    row_ids[col] = 0
+    for i in 1..num_rows:
+        out_row = []
+        for col in cols:
+            rid = row_ids[col]
+            if rid >= col.rows.len: out_row.push(empty); continue
+            rn = col.rows[rid].row_number
+            if rn <= i:
+                if rn == i:                                  // 该列在第 i 行有内容
+                    cell = col.rows[rid]; 把后续同 row_number 行并入（多行单元格）
+                    out_row.push(cell)
+                row_ids[col] = rid+1
+            else: out_row.push(empty)
+        table.push(out_row)
+    table.update_table_rows()                                // 切尾行进 rest（P1b restNodes）
+    if validation_score(table) < TABLE_PROB: return None
+    return table
+
+update_min_gap(c, side):   // 每邻居把各行的 gap 累计；比较用「该邻居 gap 之和 / 出现行数」=平均；
+                           // 取平均最小的邻居为 min_*_gap，但 .gap 存的是「和」(复制 veraPDF 怪癖，或统一用平均并注释偏离)
+```
+
+### E. 验收门（`Table.validate`）
+```
+validation_score(rows, font):
+    ncols = rows[0].len; filled = 非空 cell 数
+    if rows.len < 2 || ncols < 2 || (rows.len==2 && ncols==2 && filled < 4): return 0
+    max_int = 0
+    for r in 1..rows.len: for cell in body row r 非空:
+        inter = 1 - (rows[r-1].base_line - cell.base_line) / (font * ROW_WIDTH)   // 行重叠度
+        max_int = max(max_int, inter)
+    max(0, 1 - max_int)
+// 消费层 check_table：每行 ≥2 非空 cell；列左右单调；行上下单调。
+```
+
+> 以上全部是 veraPDF 的**事实参数与判定逻辑**，用 Rust 独立重写，模块 `//!` 注明对应类（`TableRecognitionArea`/`TableRecognizer`/`TableUtils`/`Table`/`ChunksMergeUtils`）。**不拷贝 GPL 源码**。有了这份附录，P1 可无歧义照实现。
