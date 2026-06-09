@@ -281,11 +281,14 @@ elements.extend(bordered.into_iter().chain(ruled).chain(cluster).map(Element::Ta
 | **P1a-3** Recognizer + validate | 五阶段（弱吸引留桩）+ `validation_score` + `check_table` | 合成表识别、三件套零误判 | ✅ |
 | **P1b-i** 按列喂入 `split_columns` | sweep-line 栏间沟 + 逐栏喂状态机 | 双栏论文表行不再交错 | ✅ |
 | **P1b-ii** 弱 cluster 吸引 + 精度门 | `attract_to_header` 级联 + 内容门（数值/≥3列/逐列均长）| **零回归**下找到真实宽数值表（2203 表 3→4）| ✅ |
-| **P1c-1** gap 图 + 列碎片合并 | `min_left/right_gap` + `is_weak_cluster` 链 + `mergeClustersByMinGaps` 不动点 | 列碎片正确合并；为放开内容门铺路 | ⬜ |
-| **P1c-2** 真 `Table.validate` 替代内容门 | 行重叠分 + 列/行单调，退掉数值/≥3列启发式 | 放开非数值/2 列表**保精度**；召回向 ODL 13 逼近 | ⬜ |
-| **P1c-3** restNodes 回收 | 驱动循环开回收 | 一页多表更全 | ⬜ |
+| **P1c-1/2** 结构校验替代内容门 | gap 图 + 列碎片合并 + 真 `Table.validate` | 放开非数值/2 列表保精度 | ⛔ **不做**（前提不成立，见下）|
+| **P1c-3** restNodes 回收 | 驱动循环开回收 | 一页多表更全 | ⬜ 低优先（现已支持一栏多表）|
 
-> ⚠️ **实现期与原计划的偏离**：①喂入序改行扫描而非 XY-cut（§11.2）；②增了**按列喂入**`split_columns`（原计划未预见的多栏阻塞）；③P1b 暂用**内容启发式门**（数值/≥3列）兜精度而非结构校验——这是为零回归先出成果的取舍，结构校验（真 `Table.validate`+列碎片合并）下放到 **P1c** 才能退掉启发式、放开更多表型。
+> ⛔ **P1c-1/2 经实验否决**（2026-06-09，devlog [p1c-investigation](../devlogs/2026-06-09-p1c-investigation.md)）：做了 3 个实验（列对齐门 / 列分离门 / 行节律裁图注），全部净负或无效。**根因**：committed P1b 残留的误判是**页眉/图注/CJK 编号散文**这类"2 列对齐结构"——几何上就是表，过任何结构/几何门；区分它们只能靠**内容/语义**信号（即 P1b 现用的数值/长度门）。**连完整 veraPDF 结构管线也救不了**（它们形成 2 列簇==2 header → 不 postprocess-bail → 仍判表）。故 P1c-1/2 前提（结构校验能退掉内容门）不成立，不实现。
+>
+> **committed P1b 即确定性表格检出前沿**。剩余表格 gap = 多级表头 + 图注吸附 + CJK 版面，皆属 **N3 神经/版面模型**领域。
+
+> ⚠️ **实现期与原计划的偏离**：①喂入序改行扫描而非 XY-cut（§11.2）；②增了**按列喂入**`split_columns`（原计划未预见的多栏阻塞）；③P1b 用**内容启发式门**（数值/≥3列）兜精度——经 P1c 实验确认这不是权宜而是**确定性下的必要**：几何/结构信号无法区分 2 列对齐的散文/页眉/图注。
 
 每步跑：`compare_odl.py`（主）、`compare_docling.py`、三件套 + 2408 零回归、确定性 20×、clippy 零 warning、单测全过。
 
