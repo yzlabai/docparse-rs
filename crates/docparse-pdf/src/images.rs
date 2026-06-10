@@ -12,6 +12,10 @@
 //! Flate/ASCII85 raw bitmaps with 8 bpc, 1 or 3 components (Gray8/Rgb8).
 //! TODO: JBIG2/CCITT/JPX scans are recorded position-only (`ImageKind::None`)
 //! — affected pages keep an auditable Image element but can't be OCR'd yet.
+//! TODO: only images referenced *directly* by the page content are collected;
+//! a scan wrapped in a Form XObject is missed entirely (the interpreter does
+//! not execute form content streams) — such a page still parses, but the OCR
+//! route sees no image. Needs form-stream interpretation to close.
 
 use docparse_core::ir::ImageKind;
 use lopdf::{Document as PdfDocument, Object, ObjectId, Stream};

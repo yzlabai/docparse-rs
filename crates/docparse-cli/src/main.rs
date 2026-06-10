@@ -153,10 +153,20 @@ fn main() -> anyhow::Result<()> {
     let mut doc = parse_path(&input)?;
 
     if cli.ocr {
-        let ocr = docparse_ocr::PpOcrEnhancer::new(&cli.ocr_models)?;
-        let (enhanced, report) = docparse_core::enhance::apply(&doc, &[&ocr]);
-        doc = enhanced;
-        eprintln!("{}", docparse_core::enhance::report_json(&report));
+        // Load models only when some page actually needs enhancement — a
+        // fully digital document with --ocr must stay zero-cost (and must not
+        // fail on a missing model dir it would never use).
+        let needs = docparse_core::quality::assess_pages(&doc)
+            .iter()
+            .any(|a| a.needs_enhancement);
+        if needs {
+            let ocr = docparse_ocr::PpOcrEnhancer::new(&cli.ocr_models)?;
+            let (enhanced, report) = docparse_core::enhance::apply(&doc, &[&ocr]);
+            doc = enhanced;
+            eprintln!("{}", docparse_core::enhance::report_json(&report));
+        } else {
+            eprintln!("[]");
+        }
     }
 
     if cli.quality {
