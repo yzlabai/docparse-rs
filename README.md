@@ -9,7 +9,7 @@
 
 ## 当前状态：完整系统,记分牌见下 ✅
 
-PDF/DOCX/HTML → 版本化 IR(provenance + 每 chunk 置信度)→ 版面(段落/页眉页脚/多栏阅读顺序)→ 语义层(表格四检测器/标题分级)→ JSON / Markdown / Text / **RAG chunks(chunk↔bbox 双向引用)**,经 **CLI / 库 / MCP / REST** 四个接口面输出**逐字节一致**的结果。安全预检(隐藏文本过滤防 prompt injection + zip-bomb/页数资源守卫)已内置;难例经可插拔 `Enhancer` 边界外接(数字页零模型)。
+PDF/DOCX/HTML → 版本化 IR(provenance + 每 chunk 置信度)→ 版面(段落/页眉页脚/多栏阅读顺序)→ 语义层(表格四检测器/标题分级)→ JSON / Markdown / Text / **RAG chunks(chunk↔bbox 双向引用)**,经 **CLI / 库 / MCP / REST** 四个接口面输出**逐字节一致**的结果。安全预检(隐藏文本过滤防 prompt injection + zip-bomb/页数资源守卫)已内置;扫描件经 `--ocr` 走**进程内纯 Rust ONNX 推理**(PP-OCRv4 × tract,数字页零模型)。
 
 **质量记分牌**(2026-06-10,born-digital LTR,与确定性同类 ODL / 神经管线 Docling 的一致度,非人工真值):
 
@@ -84,8 +84,8 @@ cargo test          # 73 单测（CMap/矩阵/XY-cut/表格/切块/MCP/限额…
 - [x] **N2 服务化**：MCP stdio + REST，四接口逐字节一致。
 - [x] **N4 大部**：表格四检测器（bordered→ruled→cluster→borderless）、标题分级、词距。
 - [x] **N5 安全预检**：隐藏文本过滤（Tr 3/7/页外/微字 → 标注+排除+可审计）、zip-bomb/页数资源守卫。
-- [ ] **N3 真实 enhancer**（近期仅剩）：扫描页外接 OCR/VLM 端到端——待部署选型决策。
-- [ ] 远期：复杂度画像（N5c）、小模型 ONNX 内嵌（P4）、人工真值评测集。
+- [x] **N3 真实 enhancer（P4 路线）**：ONNX 内嵌 OCR（PP-OCRv4 × `tract` 纯 Rust 推理，模型外部文件 ~16MB）——`chinese_scan` 0 文本→14/14 行全对带 bbox 引用；数字页零模型；`--ocr` 可选开启。
+- [ ] 远期：复杂度画像（N5c）、人工真值评测集、OCR 方向分类/JBIG2-CCITT 编码支持。
 
 ## 许可
 
