@@ -53,8 +53,9 @@ P3 的"面向 agent 可直接调用"。**次序反转为 MCP 先行**（stdio JS
 - **验收**：一个 agent 经 MCP 上传 PDF → 拿到带 bbox 引用的 chunks → 高亮回原坐标。
 - **依赖/风险**：**新依赖**（HTTP 框架 / MCP SDK）按 CLAUDE.md §4 先征询选型。
 
-### N3 · 真实 enhancer 接入 — *模块 8*
+### N3 · 真实 enhancer 接入 — *模块 8* · 📋 设计已定（[plan](n3-real-enhancer.md)），实现暂缓（用户决策 2026-06-10）
 M7 只给了边界 + StubOcr。接一个真实模型证明可插拔端到端。
+> 调研 ODL hybrid + Docling OCR 层后设计已定（[refer/n3-enhancer-odl-docling-research](../refer/n3-enhancer-odl-docling-research.md)）：**N3a** tesseract CLI 子进程（抽嵌入图原字节而非渲染——不破"不光栅化"；零 Rust 新依赖，tesseract 运行时可选）→ **N3b** HTTP 后端（对齐 ODL hybrid，docling-serve 兼容，需 HTTP 客户端依赖征询）。
 
 - [ ] 实现一个 `Enhancer`：外部进程（如 tesseract/PaddleOCR CLI）或 HTTP（VLM/LLM）；对扫描页/高乱码页产出文本，归一回 IR、低 confidence、记 provenance。
 - [ ] 元素级 `source` 标签（M7 遗留）：每 chunk 标注"哪个 parser/enhancer"。
