@@ -23,10 +23,10 @@ All ten roadmap modules are closed (IR / PDF / layout / semantics / multi-format
 
 | Reference | NID (reading order) | MHS (headings) | TEDS (tables) |
 |---|---|---|---|
-| vs OpenDataLoader (deterministic peer, 15 docs) | **0.781** | **0.677** | 0.141 |
-| vs Docling (neural pipeline, 13 docs) | **0.818** | **0.634** | 0.157 |
+| vs OpenDataLoader (deterministic peer, 15 docs) | **0.792** | **0.685** | **0.419** |
+| vs Docling (neural pipeline, 13 docs) | **0.822** | **0.643** | **0.474** |
 
-Clean documents score 0.94–1.00 (structurally isomorphic with both references); the aggregate is pulled down by complex CJK layouts and table-structure precision (neural territory). Axis-by-axis comparison, methodology, and honest caveats: [benchmark roundup](docs/testresults/2026-06-10-benchmark-roundup.md).
+Clean documents score 0.94–1.00 (structurally isomorphic with both references); the aggregate is pulled down by complex CJK layouts and figure-embedded-table recall. Axis-by-axis comparison, methodology, and honest caveats: [benchmark roundup](docs/testresults/2026-06-10-benchmark-roundup.md).
 
 ## Usage
 

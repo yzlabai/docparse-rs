@@ -456,7 +456,6 @@ fn build_borderless(rows: &[Row], region: &[usize], cols: &[f32]) -> Option<Tabl
 const MIN_RULE_W: f32 = 80.0; // a rule must span this many points to bound a table
 const RULE_X_TOL: f32 = 24.0; // rules of one table share left/right edges within this
 const RULE_Y_GAP: f32 = 320.0; // rules farther apart vertically are different tables
-const COL_CLUSTER_TOL: f32 = 6.0; // text column alignment tolerance
 
 /// Detect tables delimited by ≥2 wide horizontal rules (academic "booktabs"
 /// style: top/mid/bottom rules, no verticals). The rules confirm the region, so
@@ -494,93 +493,306 @@ pub fn detect_ruled_tables(
 
     let mut tables = Vec::new();
     for g in groups.iter().filter(|g| g.len() >= 2) {
-        let top = g.iter().map(|r| r.0).fold(f32::MIN, f32::max);
-        let bottom = g.iter().map(|r| r.0).fold(f32::MAX, f32::min);
-        let left = g.iter().map(|r| r.1).fold(f32::MAX, f32::min);
-        let right = g.iter().map(|r| r.2).fold(f32::MIN, f32::max);
-        let region = BBox {
-            x0: left,
-            y0: bottom,
-            x1: right,
-            y1: top,
-        };
-        if exclude.iter().any(|b| overlaps(&region, b)) {
-            continue;
-        }
-        // Text strictly inside the ruled band.
-        let inside: Vec<&TextChunk> = chunks
-            .iter()
-            .copied()
-            .filter(|c| {
-                let cy = c.bbox.cy();
-                let cx = (c.bbox.x0 + c.bbox.x1) / 2.0;
-                cy > bottom && cy < top && cx >= left - 5.0 && cx <= right + 5.0
-            })
-            .collect();
-        if inside.len() < 4 {
-            continue;
-        }
-        let rows: Vec<Row> = build_rows(&inside)
-            .into_iter()
-            .filter(|r| !r.segs.is_empty())
-            .collect();
-        if rows.len() < 2 {
-            continue;
-        }
-        let cols = stable_columns(&rows);
-        if cols.len() < 2 {
-            continue;
-        }
-        tables.push(build_grid(&rows, &cols, region, page));
+        emit_ruled(g, chunks, exclude, page, &mut tables);
     }
     tables
 }
 
-/// Column x-positions that recur across rows: cluster row-cell left edges and
-/// keep clusters present in at least half the rows (filters spurious columns
-/// from the occasional multi-value cell).
-fn stable_columns(rows: &[Row]) -> Vec<f32> {
-    let mut xs: Vec<f32> = rows
-        .iter()
-        .flat_map(|r| r.segs.iter().map(|s| s.x0))
-        .collect();
-    xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    // Cluster, tracking how many distinct rows contribute (approx via count).
-    let mut clusters: Vec<(f32, usize)> = Vec::new(); // (mean, count)
-    for x in xs {
-        match clusters.last_mut() {
-            Some((m, n)) if x - *m <= COL_CLUSTER_TOL => {
-                *m = (*m * *n as f32 + x) / (*n as f32 + 1.0);
-                *n += 1;
-            }
-            _ => clusters.push((x, 1)),
-        }
+/// Try one rule group as a table; on failure, bisect at the largest vertical
+/// rule gap and retry each half. The x-tolerance grouping can chain two
+/// stacked objects (a table above a ruled figure) into one candidate whose
+/// merged region then fails validation, burying the real table — bisection
+/// recovers it. A long table whose mid→bottom span is large is safe: it
+/// validates as a whole on the first try, so it is never split.
+fn emit_ruled(
+    g: &[(f32, f32, f32)],
+    chunks: &[&TextChunk],
+    exclude: &[BBox],
+    page: usize,
+    out: &mut Vec<Table>,
+) {
+    if try_ruled_region(g, chunks, exclude, page, out) || g.len() < 3 {
+        return;
     }
-    let min_support = rows.len().div_ceil(2).max(2);
-    clusters
-        .into_iter()
-        .filter(|(_, n)| *n >= min_support)
-        .map(|(m, _)| m)
-        .collect()
+    // Largest gap between vertically adjacent rules (g is sorted y-desc).
+    let split = (1..g.len())
+        .max_by(|&a, &b| {
+            let ga = g[a - 1].0 - g[a].0;
+            let gb = g[b - 1].0 - g[b].0;
+            ga.partial_cmp(&gb).unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .unwrap();
+    if g[..split].len() >= 2 {
+        emit_ruled(&g[..split], chunks, exclude, page, out);
+    }
+    if g[split..].len() >= 2 {
+        emit_ruled(&g[split..], chunks, exclude, page, out);
+    }
 }
 
-/// Assign each row's cells to the nearest column and build the table.
-fn build_grid(rows: &[Row], cols: &[f32], region: BBox, page: usize) -> Table {
-    let ncols = cols.len();
-    let mut out_rows: Vec<Vec<Cell>> = Vec::with_capacity(rows.len());
-    for row in rows {
-        let half = row.size.max(1.0) / 2.0;
-        let mut cells: Vec<Vec<&TextChunk>> = vec![Vec::new(); ncols];
-        for s in &row.segs {
-            let ci = (0..ncols)
-                .min_by(|&a, &b| {
-                    (cols[a] - s.x0)
-                        .abs()
-                        .partial_cmp(&(cols[b] - s.x0).abs())
-                        .unwrap()
-                })
-                .unwrap_or(0);
-            cells[ci].extend(&s.chunks);
+/// One ruled-region attempt; pushes the table and returns true on success.
+fn try_ruled_region(
+    g: &[(f32, f32, f32)],
+    chunks: &[&TextChunk],
+    exclude: &[BBox],
+    page: usize,
+    out: &mut Vec<Table>,
+) -> bool {
+    let top = g.iter().map(|r| r.0).fold(f32::MIN, f32::max);
+    let bottom = g.iter().map(|r| r.0).fold(f32::MAX, f32::min);
+    let left = g.iter().map(|r| r.1).fold(f32::MAX, f32::min);
+    let right = g.iter().map(|r| r.2).fold(f32::MIN, f32::max);
+    let region = BBox {
+        x0: left,
+        y0: bottom,
+        x1: right,
+        y1: top,
+    };
+    if exclude.iter().any(|b| overlaps(&region, b)) {
+        return false;
+    }
+    // Text strictly inside the ruled band.
+    let inside: Vec<&TextChunk> = chunks
+        .iter()
+        .copied()
+        .filter(|c| {
+            let cy = c.bbox.cy();
+            let cx = (c.bbox.x0 + c.bbox.x1) / 2.0;
+            cy > bottom && cy < top && cx >= left - 5.0 && cx <= right + 5.0
+        })
+        .collect();
+    if inside.len() < 4 {
+        return false;
+    }
+    let rows: Vec<Row> = build_rows(&inside)
+        .into_iter()
+        .filter(|r| !r.segs.is_empty())
+        .collect();
+    if rows.len() < 2 {
+        return false;
+    }
+    let spans = column_spans(&rows);
+    if spans.len() < 2 {
+        return false;
+    }
+
+    // Internal rules partition the baselines into bands (rows are y-desc, so
+    // bands are contiguous index ranges). Dedupe near-coincident rules and
+    // drop the boundary ones.
+    let mut internal: Vec<f32> = g
+        .iter()
+        .map(|r| r.0)
+        .filter(|&y| y < top - SNAP && y > bottom + SNAP)
+        .collect();
+    internal.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+    internal.dedup_by(|a, b| (*a - *b).abs() <= SNAP);
+    let mut bands: Vec<(usize, usize)> = Vec::new();
+    let mut start = 0usize;
+    for &ry in &internal {
+        let end = rows[start..]
+            .iter()
+            .position(|r| r.cy < ry)
+            .map(|p| start + p)
+            .unwrap_or(rows.len());
+        if end > start {
+            bands.push((start, end));
+        }
+        start = end;
+    }
+    if start < rows.len() {
+        bands.push((start, rows.len()));
+    }
+
+    // Attempt B first: each band IS one logical row. When the author drew a
+    // rule per row (a grid minus the verticals), this is exact — wrapped
+    // cells make intra-band spacing uniform, so gap analysis can't beat it.
+    // Sparse-ruled tables (booktabs: midrule only) fail here on row count and
+    // fall through to A.
+    if !internal.is_empty() && bands.len() >= 3 {
+        let groups_b: Vec<Vec<usize>> = bands.iter().map(|&(s, e)| (s..e).collect()).collect();
+        let table = build_grid(&rows, &groups_b, &spans, region, page);
+        if is_tabular(&table, true) {
+            out.push(table);
+            return true;
+        }
+    }
+
+    // Attempt A: sub-rows inside each band via gap bimodality (booktabs: the
+    // internal rules are header/group separators, real rows sit between them
+    // at a pitch visibly larger than wrapped-line spacing).
+    let groups_a: Vec<Vec<usize>> = bands
+        .iter()
+        .flat_map(|&(s, e)| {
+            logical_groups(&rows[s..e])
+                .into_iter()
+                .map(move |g| g.into_iter().map(|i| i + s).collect::<Vec<_>>())
+        })
+        .collect();
+    let table = build_grid(&rows, &groups_a, &spans, region, page);
+    if is_tabular(&table, false) {
+        out.push(table);
+        return true;
+    }
+    false
+}
+
+/// Structural validation of a ruled-region grid. The old left-edge column
+/// clustering doubled as this gate (each column needed support in half the
+/// rows); whitespace channels alone are far weaker — indented code in a ruled
+/// box or a two-column word cloud also has a channel. A real table fills
+/// every column in most logical rows and keeps cells short; narrow (2–3 col)
+/// grids additionally need numeric evidence, exactly like the borderless
+/// detector's content gate.
+///
+/// `cells_wrap` relaxes the cell-length gate: when every logical row sits in
+/// its own rule-delimited band, the author drew the row separators (a grid
+/// minus the verticals), and paragraph-length cells are legitimate — the
+/// bordered detector imposes no content gate either.
+fn is_tabular(t: &Table, cells_wrap: bool) -> bool {
+    let nrows = t.rows.len();
+    let ncols = t.rows.iter().map(Vec::len).max().unwrap_or(0);
+    if nrows < 3 || ncols < 2 {
+        return false;
+    }
+    for ci in 0..ncols {
+        let filled = t
+            .rows
+            .iter()
+            .filter(|r| r.get(ci).is_some_and(|c| !c.text.trim().is_empty()))
+            .count();
+        if filled * 10 <= nrows * 6 {
+            return false;
+        }
+    }
+    if cells_wrap {
+        return true;
+    }
+    let cells: Vec<&str> = t
+        .rows
+        .iter()
+        .flatten()
+        .map(|c| c.text.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    // MEDIAN cell length, not mean: definition tables legitimately carry one
+    // long "Description" column (redp5110), but MOST cells of a real table
+    // are short; prose/code in a ruled box is long in the typical cell too.
+    // Also NO numeric-evidence gate, unlike the borderless detector: the
+    // bounding rules are already strong table evidence, and 2–3 column
+    // key-value tables are legitimately all-text.
+    let mut lens: Vec<usize> = cells.iter().map(|s| s.chars().count()).collect();
+    lens.sort_unstable();
+    lens.get(lens.len() / 2).copied().unwrap_or(0) <= 25
+}
+
+/// Minimum whitespace-channel width (× median row font size) separating two
+/// columns. Word spaces are ~0.25em and get closed by other rows' ink in the
+/// union, so 0.5em cleanly separates inter-column gaps from intra-cell ones.
+const MIN_CHANNEL_EM: f32 = 0.5;
+
+/// Column ink spans: union the x-intervals of every chunk across all rows;
+/// the gaps that survive (≥ [`MIN_CHANNEL_EM`]) are whitespace channels that
+/// no row's ink crosses — the column separators. Unlike left-edge clustering,
+/// this recovers centered/right-aligned columns (numeric academic tables)
+/// whose left edges drift row to row.
+fn column_spans(rows: &[Row]) -> Vec<(f32, f32)> {
+    let mut sizes: Vec<f32> = rows.iter().map(|r| r.size).collect();
+    sizes.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let med = sizes.get(sizes.len() / 2).copied().unwrap_or(10.0);
+    let min_gap = MIN_CHANNEL_EM * med.max(1.0);
+
+    let mut iv: Vec<(f32, f32)> = rows
+        .iter()
+        .flat_map(|r| r.segs.iter())
+        .flat_map(|s| s.chunks.iter().map(|c| (c.bbox.x0, c.bbox.x1)))
+        .collect();
+    iv.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let mut spans: Vec<(f32, f32)> = Vec::new();
+    for (a, b) in iv {
+        match spans.last_mut() {
+            Some(s) if a - s.1 < min_gap => s.1 = s.1.max(b),
+            _ => spans.push((a, b)),
+        }
+    }
+    spans
+}
+
+/// A sorted-gap jump this large separates intra-row line spacing from
+/// inter-row pitch (measured ~0.7em vs ~1.5em on academic tables).
+const GAP_JUMP: f32 = 1.6;
+/// A wrapped/stacked cell rarely exceeds this many lines; a "logical row"
+/// swallowing more means the gap split was wrong (e.g. a lone oversized
+/// header gap made the uniform row pitch look like line spacing).
+const MAX_GROUP_LINES: usize = 4;
+
+/// Merge baseline rows into logical rows. Multi-line cells (wrapped headers,
+/// stacked sub-rows) sit at line spacing while real rows sit at a visibly
+/// larger pitch — when the sorted inter-baseline gaps show a clear bimodal
+/// jump, gaps below it bind their rows together. Uniform spacing merges
+/// nothing; a degenerate split (one group eating the table) falls back to
+/// one-baseline-per-row.
+fn logical_groups(rows: &[Row]) -> Vec<Vec<usize>> {
+    let singletons = || (0..rows.len()).map(|i| vec![i]).collect::<Vec<_>>();
+    if rows.len() < 3 {
+        return singletons();
+    }
+    let gaps: Vec<f32> = rows.windows(2).map(|w| (w[0].cy - w[1].cy).abs()).collect();
+    let mut sorted = gaps.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mut threshold = None;
+    let mut best = GAP_JUMP;
+    for w in sorted.windows(2) {
+        let ratio = w[1] / w[0].max(0.1);
+        if ratio > best {
+            best = ratio;
+            threshold = Some((w[0] + w[1]) / 2.0);
+        }
+    }
+    let Some(th) = threshold else {
+        return singletons();
+    };
+    let mut groups: Vec<Vec<usize>> = vec![vec![0]];
+    for (i, g) in gaps.iter().enumerate() {
+        if *g < th {
+            groups.last_mut().unwrap().push(i + 1);
+        } else {
+            groups.push(vec![i + 1]);
+        }
+    }
+    if groups.iter().any(|g| g.len() > MAX_GROUP_LINES) {
+        return singletons();
+    }
+    groups
+}
+
+/// Build the table: one cell per (logical row group × column span), filled
+/// with the group's chunks whose center falls inside the span; multi-line
+/// cell text is reassembled by `reconstruct_lines`.
+fn build_grid(
+    rows: &[Row],
+    groups: &[Vec<usize>],
+    spans: &[(f32, f32)],
+    region: BBox,
+    page: usize,
+) -> Table {
+    let mut out_rows: Vec<Vec<Cell>> = Vec::with_capacity(groups.len());
+    for group in groups {
+        let mut y_top = f32::MIN;
+        let mut y_bot = f32::MAX;
+        let mut cells: Vec<Vec<&TextChunk>> = vec![Vec::new(); spans.len()];
+        for &ri in group {
+            let row = &rows[ri];
+            let half = row.size.max(1.0) / 2.0;
+            y_top = y_top.max(row.cy + half);
+            y_bot = y_bot.min(row.cy - half);
+            for s in &row.segs {
+                for c in &s.chunks {
+                    let cx = (c.bbox.x0 + c.bbox.x1) / 2.0;
+                    if let Some(ci) = spans.iter().position(|&(lo, hi)| cx >= lo && cx <= hi) {
+                        cells[ci].push(c);
+                    }
+                }
+            }
         }
         let cell_row = cells
             .into_iter()
@@ -592,19 +804,13 @@ fn build_grid(rows: &[Row], cols: &[f32], region: BBox, page: usize) -> Table {
                     .filter(|s| !s.is_empty())
                     .collect::<Vec<_>>()
                     .join(" ");
-                let x0 = cols[ci];
-                let x1 = if ci + 1 < ncols {
-                    cols[ci + 1]
-                } else {
-                    region.x1
-                };
                 Cell {
                     text,
                     bbox: BBox {
-                        x0,
-                        y0: row.cy - half,
-                        x1,
-                        y1: row.cy + half,
+                        x0: spans[ci].0,
+                        y0: y_bot,
+                        x1: spans[ci].1,
+                        y1: y_top,
                     },
                 }
             })
@@ -748,18 +954,22 @@ mod tests {
 
     #[test]
     fn ruled_table_between_two_wide_rules() {
-        // Two wide horizontal rules bound a 2-col × 2-row table.
-        let segs = vec![h(100.0, 0.0, 200.0), h(60.0, 0.0, 200.0)];
+        // Two wide horizontal rules bound a 2-col × 3-row table. (A 2-row
+        // ruled region is deliberately NOT enough — two stacked text lines in
+        // a ruled box look identical; is_tabular wants ≥3 logical rows.)
+        let segs = vec![h(100.0, 0.0, 200.0), h(45.0, 0.0, 200.0)];
         let cs: Vec<TextChunk> = vec![
             cc("a1", 10.0, 30.0, 90.0),
             cc("b1", 110.0, 130.0, 90.0),
             cc("a2", 10.0, 30.0, 75.0),
             cc("b2", 110.0, 130.0, 75.0),
+            cc("a3", 10.0, 30.0, 60.0),
+            cc("b3", 110.0, 130.0, 60.0),
         ];
         let refs: Vec<&TextChunk> = cs.iter().collect();
         let tables = detect_ruled_tables(&refs, &segs, &[], 1);
         assert_eq!(tables.len(), 1, "ruled region is a table");
-        assert_eq!(tables[0].rows.len(), 2);
+        assert_eq!(tables[0].rows.len(), 3);
         assert_eq!(tables[0].rows[0].len(), 2);
         assert_eq!(tables[0].rows[0][0].text, "a1");
     }

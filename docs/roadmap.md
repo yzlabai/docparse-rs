@@ -183,10 +183,10 @@ flowchart TB
 - **NID** 阅读顺序 · **TEDS** 表格结构 · **MHS** 标题层级。目标分两档（2026-06-10 据 N1 实测改写，原"聚合三项不低于 Docling 0.882"对确定性路线不可达）：
   - **确定性路线（回归门，已达成须保持）**：clean born-digital LTR 子集 NID ≥0.92——后续任何改动不得击穿。
   - **聚合追平（N3 enhancer 的验收指标）**：剩余 gap（CJK 复杂版面、最难双栏论文首页）经实验证明属版面模型/外接增强域，聚合分追平 Docling 由 N3 负责，不再作确定性路线目标。
-- **TEDS 边界须诚实标注**：roadmap §2 的"结构理解要持平"目前只在**表格检出覆盖**上接近 ODL（四检测器，召回 5/6+）；**结构精度**（多级表头/合并单元格/单元格粒度）不持平、属神经域。TEDS 聚合 **0.093（ODL）/0.180（Docling）**（2026-06-10 修了按索引配对的测量 bug——表按内容最优配对而非发射序，redp5110 0.184→0.432；仍为近似 proxy，精确 APTED 待换）。聚合仍低主因是**检出 recall**（学术无框表 ODL 13 vs 我方 4），非已检出表的结构错。
+- **TEDS 边界须诚实标注**：G9d（2026-06-10）后**检出覆盖与结构双达实用线**——通道列+规则线分带行使 ruled/栅格表结构与 ODL 高度一致（pg9 0.804、redp5110 0.859、normal_4pages 韩文段落格 0.400）。TEDS 聚合 **0.419（ODL）/0.474（Docling）**（行对齐 DP + 全空网格对称过滤后的诚实口径；仍为近似 proxy，精确 APTED 待换）。余差在**图内嵌表**（2203/2305 论文里画在 figure 中的示例表）与合并单元格语义（rowspan/colspan 未建模）。
 - benchmark **不可拼榜**（报告 §5.2）：只在自建可比子集比，不把不同项目的单分拼排行。
 
-> **现状（2026-06-10，去 RTL born-digital LTR）**：vs ODL NID **0.764** / MHS **0.627** / TEDS 0.098；vs Docling NID **0.833** / MHS **0.645** / TEDS 0.187。**clean 子集已达 docling/ODL 水平**（`multi_page` 0.984、`code`/`picture` 0.99、`redp5110` 0.973、`2203` 0.945、`2305` 0.939）。聚合被 CJK 复杂版面（`skipped_*`/`normal_4pages`）拖低——属 N3 enhancer/版面模型领域。⚠️ 本会话**多次关键纠偏几乎全是评测/输出管线 bug 而非解析能力**：① GT 提取器漏算列表文本（NID +0.07）；② chunk 页级 y-sort 毁双栏读序（`2203` 0.568→0.936）；③ TEDS 按索引配对（redp5110 0.184→0.432）；④ 跑页眉漏过滤误判为标题（2305 MHS 0.488→0.647，唯一真产品 bug）。详见 [devlogs](devlogs/)（chunk-order-fix、running-header-and-teds-honesty）。
+> **现状（2026-06-10 G9 收官，去 RTL born-digital LTR）**：vs ODL NID **0.792** / MHS **0.685** / TEDS **0.419**；vs Docling NID **0.822** / MHS **0.643** / TEDS **0.474**。**clean 子集达 docling/ODL 水平**（`multi_page` 0.984、`code`/`picture` 0.99、`redp5110` 0.985、`2203` 0.937、`2305` 0.962）。聚合余差：CJK 复杂版面（`skipped_*`）与图内嵌表 recall。⚠️ 历次关键纠偏**多数是评测/输出管线 bug 而非解析能力**：GT 提取器漏列表、chunk 页级 y-sort、TEDS 按索引配对（两次：发射序配对、行号级联错位）、跑页眉误判标题。**分数可疑先怀疑管线**。详见 [devlogs](devlogs/)。
 
 **差异化记分牌（Docling 结构上无法同台）**——这才是"更好"的硬证据：
 
@@ -225,4 +225,4 @@ flowchart TD
   Q -->|供 agent/RAG 调用| E[P3: 服务化接口 + 切块溯源 + AI 可插拔增强]
 ```
 
-进度（2026-06-10）：**M1–M7 与 N1（评测）、N2（服务化 MCP+REST）、N4 大部（表格四检测器/标题/词距）、N5（隐藏文本过滤 + 资源守卫）全部完成**——73 单测、clippy 零 warning、输出跨 CLI/库/MCP/REST 四接口逐字节一致；记分牌见 §6 现状。**近期仅剩 N3 真实 enhancer**（部署选型待决策，已暂缓）；其余剩项属确定性天花板（CJK 版面/无框表 recall）或远期（N5c 画像、P4 ONNX、人工真值集）。里程碑细节见 [plans/next-iteration.md](plans/next-iteration.md)；**下一阶段**（补齐 Docling 占优轴：版面/表结构 enhancer、XLSX/PPTX、OCR 长尾、生态、压测）见 [plans/closing-docling-gaps.md](plans/closing-docling-gaps.md)；devlog 见 [devlogs/](devlogs/)。
+进度（2026-06-10）：**M1–M7、N1–N5、Phase 4 主体（G1a/G2/G4/G8a/G8b 首增量/G9 全部）完成**——100+ 单测、clippy 零 warning、输出跨 CLI/库/MCP/REST 四接口逐字节一致；记分牌见 §6 现状。G9d 收官（表结构：通道列+规则线分带+二分重试，TEDS 0.129→0.419，验收门 ≥0.2 过）。**剩余池**：图片导出面、G1b 长尾格式、G7 压测、G8b 真实服务 e2e（候 Ollama）、`--vlm-tables`、合并单元格语义（远期）。里程碑细节见 [plans/next-iteration.md](plans/next-iteration.md) 与 [plans/closing-docling-gaps.md](plans/closing-docling-gaps.md)；devlog 见 [devlogs/](devlogs/)。

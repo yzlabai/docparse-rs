@@ -87,9 +87,9 @@ print(f"| RTL（超范围，仅记录）| {len(rtl_rows)} | {mean(r['s']['NID'] 
 rec_den = [r for r in rows if not r["rtl"] and r["ref_tables"] > 0]
 rec_num = [r for r in rec_den if r["pred_tables"] > 0]
 print(f"\n- **表格检出召回**（Docling 有表的 LTR 文档中我方也检出 ≥1 表）：{len(rec_num)}/{len(rec_den)}。"
-      "我方 M4 只做**有框**表格，学术论文多为**无框**（booktabs）→ 多数 TEDS=0，已知限制（→ N4 无框表格）。")
+      "覆盖四类检测器：有框栅格 / ruled（booktabs+横线分行栅格，留白通道列）/ 簇 / 无框对齐（G9d）。")
 print(f"- 解析：{sum(1 for r in rows if r['s'])}/{len(rows)} 成功，0 panic。")
-print("- **诊断结论**：① 文本/阅读顺序 LTR 与 Docling 中等一致（受分块粒度与缺无框表影响）；"
-      "② 表格主要差距在**无框表格**（N4 最高优先，本数据佐证）；③ 标题检测（字号众数）弱于 Docling 模型标注（N4 标题分级）；"
-      "④ **RTL 未支持**（LTR XY-cut），非 born-digital-LTR 战场，记录在案。")
+print("- **诊断结论**：① 文本/阅读顺序 LTR 与 Docling 中等一致（受分块粒度影响）；"
+      "② 表格结构经 G9d（通道列+规则线分带行）已达确定性方法的实用水平，余差在图内嵌表/无线表 recall；"
+      "③ **RTL 未支持**（LTR XY-cut），非 born-digital-LTR 战场，记录在案。")
 print("- 参照：Docling 在 ODL benchmark 综合 0.882（不同数据/口径，**不可并列**，仅量级参照）。")

@@ -48,8 +48,27 @@ def nid(pred, gt):
     return SequenceMatcher(None, a, b, autojunk=False).ratio()
 
 
+def _row_sim(pr_row, gt_row, cols):
+    """Fraction of column-aligned cells with equal text, over `cols`. Cells
+    empty on BOTH sides don't count as agreement (no content to compare)."""
+    match = 0
+    for j in range(cols):
+        p = _norm(pr_row[j]) if j < len(pr_row) else ""
+        g = _norm(gt_row[j]) if j < len(gt_row) else ""
+        if p and p == g:
+            match += 1
+    return match / cols if cols else 0.0
+
+
 def _teds_one(pt, gt):
-    """Structural proxy for one table: shape similarity + cell-content match."""
+    """Structural proxy for one table: shape similarity + cell-content match
+    under a monotonic ROW ALIGNMENT (DP over row pairs, mirroring the row
+    insert/delete edits of real tree-edit-distance TEDS). Rigid index pairing
+    made the score collapse when one side emits a single extra header row —
+    every following data row misaligned cascade-style, scoring 0 despite
+    identical content. Alignment is symmetric: it can only recover genuinely
+    equal rows, never invent agreement; unmatched rows still dilute via the
+    max-rows denominator."""
     pr, gr = len(pt), len(gt)
     pc = max((len(r) for r in pt), default=0)
     gc = max((len(r) for r in gt), default=0)
@@ -61,14 +80,13 @@ def _teds_one(pt, gt):
     total = rows * cols
     if total == 0:
         return shape
-    match = 0
-    for i in range(rows):
-        for j in range(cols):
-            p = _norm(pt[i][j]) if i < pr and j < len(pt[i]) else None
-            g = _norm(gt[i][j]) if i < gr and j < len(gt[i]) else None
-            if p is not None and p == g:
-                match += 1
-    content = match / total
+    # DP: best monotonic pairing of pred rows to gt rows by cell-match score.
+    best = [[0.0] * (gr + 1) for _ in range(pr + 1)]
+    for i in range(1, pr + 1):
+        for j in range(1, gr + 1):
+            pair = best[i - 1][j - 1] + _row_sim(pt[i - 1], gt[j - 1], cols)
+            best[i][j] = max(pair, best[i - 1][j], best[i][j - 1])
+    content = best[pr][gr] * cols / total
     return 0.3 * shape + 0.7 * content
 
 
@@ -77,8 +95,15 @@ def _is_table(t):
     is a list or a stray figure fragment, not a grid — applied symmetrically to
     predicted and reference so neither side is credited/penalized for degenerate
     detections (e.g. ODL emits 1×2 page-number fragments and chart-axis rows as
-    'tables' on 2203)."""
-    return len(t) >= 2 and max((len(r) for r in t), default=0) >= 2
+    'tables' on 2203). A grid whose every cell is EMPTY is equally degenerate:
+    it is line-art inside a figure with no extractable content (ODL emits 6 such
+    on 2305), so there is nothing for a content-weighted metric to compare —
+    also filtered symmetrically."""
+    return (
+        len(t) >= 2
+        and max((len(r) for r in t), default=0) >= 2
+        and any(str(c).strip() for r in t for c in r)
+    )
 
 
 def teds(pred, gt):
