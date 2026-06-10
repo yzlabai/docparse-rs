@@ -55,16 +55,22 @@ impl PpOcrEnhancer {
     /// Load models from a directory. Fails with a traceable error when files
     /// are missing — callers decide whether OCR is optional.
     pub fn new(model_dir: &Path) -> Result<Self> {
+        // Accept any PP-OCR generation: the v4 file names, or generic ones
+        // (det*.onnx / rec*.onnx / *dict*.txt | ppocr_keys*) so a PP-OCRv5
+        // model set drops in without renames.
+        let det_path = find_file(model_dir, &["ch_PP-OCRv4_det_infer.onnx"], "det", ".onnx")?;
+        let rec_path = find_file(model_dir, &["ch_PP-OCRv4_rec_infer.onnx"], "rec", ".onnx")?;
+        let dict_path = find_file(model_dir, &["ppocr_keys_v1.txt"], "dict", ".txt")?;
         let det_bytes = sanitize_dims(
-            &std::fs::read(model_dir.join("ch_PP-OCRv4_det_infer.onnx"))
-                .with_context(|| format!("det model in {}", model_dir.display()))?,
+            &std::fs::read(&det_path)
+                .with_context(|| format!("det model {}", det_path.display()))?,
         );
         let rec_bytes = sanitize_dims(
-            &std::fs::read(model_dir.join("ch_PP-OCRv4_rec_infer.onnx"))
-                .with_context(|| format!("rec model in {}", model_dir.display()))?,
+            &std::fs::read(&rec_path)
+                .with_context(|| format!("rec model {}", rec_path.display()))?,
         );
-        let dict: Vec<String> = std::fs::read_to_string(model_dir.join("ppocr_keys_v1.txt"))
-            .with_context(|| format!("ppocr_keys_v1.txt in {}", model_dir.display()))?
+        let dict: Vec<String> = std::fs::read_to_string(&dict_path)
+            .with_context(|| format!("dictionary {}", dict_path.display()))?
             .lines()
             .map(str::to_owned)
             .collect();
@@ -309,20 +315,54 @@ fn to_rgb(img: &ImageChunk) -> Option<Vec<u8>> {
     }
 }
 
-/// paddle2onnx names dynamic dims `p2o.DynamicDimension.N`; tract's symbol
-/// parser rejects the dots. Equal-length byte patch keeps protobuf intact.
+/// paddle2onnx names dynamic dims `p2o.DynamicDimension.N` (older exports) or
+/// `DynamicDimension.N` (newer, e.g. PP-OCRv5); tract's symbol parser rejects
+/// the dots. Equal-length byte patches keep the protobuf intact.
 fn sanitize_dims(bytes: &[u8]) -> Vec<u8> {
     let mut out = bytes.to_vec();
-    let pat = b"p2o.DynamicDimension.";
-    let rep = b"p2o_DynamicDimension_";
+    replace_inplace(&mut out, b"p2o.DynamicDimension.", b"p2o_DynamicDimension_");
+    replace_inplace(&mut out, b"DynamicDimension.", b"DynamicDimension_");
+    out
+}
+
+/// Resolve a model file: exact known names first, then any file whose name
+/// contains `needle` with the given extension (alphabetically first match).
+fn find_file(dir: &Path, exact: &[&str], needle: &str, ext: &str) -> Result<std::path::PathBuf> {
+    for name in exact {
+        let p = dir.join(name);
+        if p.exists() {
+            return Ok(p);
+        }
+    }
+    let mut candidates: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+        .with_context(|| format!("model dir {}", dir.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| {
+                    let l = n.to_ascii_lowercase();
+                    l.contains(needle) && l.ends_with(ext)
+                })
+                .unwrap_or(false)
+        })
+        .collect();
+    candidates.sort();
+    candidates
+        .into_iter()
+        .next()
+        .with_context(|| format!("no *{needle}*{ext} in {}", dir.display()))
+}
+
+fn replace_inplace(buf: &mut [u8], pat: &[u8], rep: &[u8]) {
+    debug_assert_eq!(pat.len(), rep.len());
     let mut i = 0;
-    while i + pat.len() <= out.len() {
-        if &out[i..i + pat.len()] == pat {
-            out[i..i + rep.len()].copy_from_slice(rep);
+    while i + pat.len() <= buf.len() {
+        if &buf[i..i + pat.len()] == pat {
+            buf[i..i + rep.len()].copy_from_slice(rep);
         }
         i += 1;
     }
-    out
 }
 
 /// Bilinear RGB resize.
