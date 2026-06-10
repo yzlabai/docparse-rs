@@ -21,9 +21,9 @@
 //! detected): same-color-as-background text, text occluded by images.
 
 use crate::font::FontInfo;
-use crate::images::XImage;
+use crate::images::{FormX, XImage, MAX_FORM_DEPTH};
 use crate::matrix::Matrix;
-use docparse_core::ir::{BBox, Element, ImageChunk, ImageKind, Page, TextChunk};
+use docparse_core::ir::{BBox, Element, ImageChunk, Page, TextChunk};
 use docparse_core::table::{detect_borderless_tables, detect_ruled_tables, detect_tables, Segment};
 use docparse_core::table_cluster::detect_cluster_tables;
 use lopdf::content::Content;
@@ -41,6 +41,18 @@ pub struct PageInput {
     pub fonts: HashMap<String, FontInfo>,
     /// Image XObjects keyed by resource name (for `Do`), streams undecoded.
     pub images: HashMap<String, XImage>,
+    /// Form XObjects keyed by resource name, with their own resources.
+    pub forms: HashMap<String, FormX>,
+}
+
+/// Per-content-stream execution context: the resource set in scope. Forms
+/// carry their own, so recursion swaps the whole context.
+struct Ctx<'a> {
+    fonts: &'a HashMap<String, FontInfo>,
+    images: &'a HashMap<String, XImage>,
+    forms: &'a HashMap<String, FormX>,
+    page_no: usize,
+    page_size: (f32, f32),
 }
 
 #[derive(Clone)]
@@ -79,29 +91,85 @@ impl TextState {
 /// Interpret a page's content stream into positioned text chunks.
 pub fn interpret(input: &PageInput) -> Page {
     let mut elements: Vec<Element> = Vec::new();
+    let mut segments: Vec<Segment> = Vec::new();
 
-    let content = match Content::decode(&input.content) {
-        Ok(c) => c,
-        Err(_) => {
-            // Unparseable/empty stream (e.g. scanned page) — return an empty page.
-            return Page {
-                number: input.number,
-                width: input.width,
-                height: input.height,
-                elements,
-            };
-        }
+    let ctx = Ctx {
+        fonts: &input.fonts,
+        images: &input.images,
+        forms: &input.forms,
+        page_no: input.number,
+        page_size: (input.width, input.height),
+    };
+    exec_content(
+        &input.content,
+        &ctx,
+        Matrix::identity(),
+        0,
+        &mut elements,
+        &mut segments,
+    );
+
+    // Semantic layer: detect bordered tables from ruling lines + text, then
+    // append them as elements (the output layer skips text inside table bboxes).
+    let text_refs: Vec<&TextChunk> = elements
+        .iter()
+        .filter_map(|e| match e {
+            Element::Text(t) => Some(t),
+            _ => None,
+        })
+        .collect();
+    let bordered = detect_tables(&text_refs, &segments, input.number);
+    let mut excl: Vec<BBox> = bordered.iter().map(|t| t.bbox).collect();
+    // Ruled (booktabs) tables bounded by wide horizontal rules — high-confidence.
+    let ruled = detect_ruled_tables(&text_refs, &segments, &excl, input.number);
+    excl.extend(ruled.iter().map(|t| t.bbox));
+    // Cluster (header-anchored) tables — highest coverage; high-confidence
+    // clean-grid path. Runs before the looser borderless fallback.
+    let cluster = detect_cluster_tables(&text_refs, &excl, input.number);
+    excl.extend(cluster.iter().map(|t| t.bbox));
+    // Borderless (alignment-based) tables on text not in any detected table.
+    let borderless = detect_borderless_tables(&text_refs, &excl);
+    drop(text_refs);
+    elements.extend(
+        bordered
+            .into_iter()
+            .chain(ruled)
+            .chain(cluster)
+            .chain(borderless)
+            .map(Element::Table),
+    );
+
+    Page {
+        number: input.number,
+        width: input.width,
+        height: input.height,
+        elements,
+    }
+}
+
+/// Execute one content stream (page or Form XObject) against a resource
+/// context, appending positioned elements and painted segments. Forms recurse
+/// with their own context and `Matrix`-adjusted CTM (depth-capped).
+fn exec_content(
+    bytes: &[u8],
+    ctx: &Ctx,
+    base_ctm: Matrix,
+    depth: usize,
+    elements: &mut Vec<Element>,
+    segments: &mut Vec<Segment>,
+) {
+    let Ok(content) = Content::decode(bytes) else {
+        return; // unparseable/empty stream (e.g. scanned page)
     };
 
     let mut ctm_stack: Vec<Matrix> = Vec::new();
-    let mut ctm = Matrix::identity();
+    let mut ctm = base_ctm;
     let mut ts = TextState::new();
 
     // Vector-path state for ruling-line (table border) extraction.
-    let mut cur_pt: Option<(f64, f64)> = None; // current point (user space)
-    let mut sub_start: Option<(f64, f64)> = None; // subpath start (for closepath)
-    let mut path: Vec<Segment> = Vec::new(); // segments of the path being built
-    let mut segments: Vec<Segment> = Vec::new(); // painted (stroked/filled) segments
+    let mut cur_pt: Option<(f64, f64)> = None;
+    let mut sub_start: Option<(f64, f64)> = None;
+    let mut path: Vec<Segment> = Vec::new();
 
     for op in &content.operations {
         let ops = &op.operands;
@@ -175,30 +243,14 @@ pub fn interpret(input: &PageInput) -> Page {
             }
             "Tj" => {
                 if let Some(Object::String(bytes, _)) = ops.first() {
-                    show_text(
-                        bytes,
-                        &mut ts,
-                        &ctm,
-                        &mut elements,
-                        input.number,
-                        (input.width, input.height),
-                        &input.fonts,
-                    );
+                    show_text(bytes, &mut ts, &ctm, elements, ctx, depth > 0);
                 }
             }
             "'" => {
                 ts.tlm = Matrix::translate(0.0, -ts.leading).mul(&ts.tlm);
                 ts.tm = ts.tlm;
                 if let Some(Object::String(bytes, _)) = ops.first() {
-                    show_text(
-                        bytes,
-                        &mut ts,
-                        &ctm,
-                        &mut elements,
-                        input.number,
-                        (input.width, input.height),
-                        &input.fonts,
-                    );
+                    show_text(bytes, &mut ts, &ctm, elements, ctx, depth > 0);
                 }
             }
             // ---- path construction (for table ruling lines) ----
@@ -255,12 +307,12 @@ pub fn interpret(input: &PageInput) -> Page {
                 cur_pt = None;
                 sub_start = None;
             }
-            // XObject placement. Images are recorded with their placement bbox
-            // (CTM applied to the unit square); pixels are materialized only
-            // for page-covering images — the scanned-page shape the OCR
-            // enhancer consumes (N3) — so figure-heavy digital docs pay ~0.
+            // XObject placement: images get a positioned element (pixels only
+            // for page-covering scan candidates); forms execute recursively
+            // with their own resources and Matrix-adjusted CTM.
             "Do" => {
-                if let Some(img) = name_of0(ops).and_then(|n| input.images.get(&n)) {
+                let Some(n) = name_of0(ops) else { continue };
+                if let Some(img) = ctx.images.get(&n) {
                     let corners = [
                         ctm.apply(0.0, 0.0),
                         ctm.apply(1.0, 0.0),
@@ -277,39 +329,50 @@ pub fn interpret(input: &PageInput) -> Page {
                         .iter()
                         .map(|c| c.1)
                         .fold(f64::NEG_INFINITY, f64::max) as f32;
-                    let coverage = ((x1 - x0) * (y1 - y0)) / (input.width * input.height).max(1.0);
+                    let (pw, ph) = ctx.page_size;
+                    let coverage = ((x1 - x0) * (y1 - y0)) / (pw * ph).max(1.0);
                     let (kind, data) = if coverage >= SCAN_COVERAGE_MIN {
                         img.decode()
                     } else {
-                        (ImageKind::None, Vec::new())
+                        (docparse_core::ir::ImageKind::None, Vec::new())
                     };
                     elements.push(Element::Image(ImageChunk {
                         bbox: BBox { x0, y0, x1, y1 },
-                        page: input.number,
+                        page: ctx.page_no,
                         width_px: img.width,
                         height_px: img.height,
                         kind,
                         data,
                     }));
+                } else if let Some(form) = ctx.forms.get(&n) {
+                    if depth < MAX_FORM_DEPTH {
+                        let sub = Ctx {
+                            fonts: &form.fonts,
+                            images: &form.images,
+                            forms: &form.forms,
+                            page_no: ctx.page_no,
+                            page_size: ctx.page_size,
+                        };
+                        exec_content(
+                            &form.content,
+                            &sub,
+                            form.matrix.mul(&ctm),
+                            depth + 1,
+                            elements,
+                            segments,
+                        );
+                    }
                 }
             }
             "TJ" => {
                 if let Some(Object::Array(arr)) = ops.first() {
                     for el in arr {
                         match el {
-                            Object::String(bytes, _) => show_text(
-                                bytes,
-                                &mut ts,
-                                &ctm,
-                                &mut elements,
-                                input.number,
-                                (input.width, input.height),
-                                &input.fonts,
-                            ),
+                            Object::String(bytes, _) => {
+                                show_text(bytes, &mut ts, &ctm, elements, ctx, depth > 0)
+                            }
                             _ => {
                                 if let Some(adj) = num(el) {
-                                    // Negative adjustment moves the pen forward;
-                                    // horizontal scaling (Tz) applies.
                                     let dx = -adj / 1000.0 * ts.font_size * ts.h_scale;
                                     ts.tm = Matrix::translate(dx, 0.0).mul(&ts.tm);
                                 }
@@ -320,43 +383,6 @@ pub fn interpret(input: &PageInput) -> Page {
             }
             _ => {}
         }
-    }
-
-    // Semantic layer: detect bordered tables from ruling lines + text, then
-    // append them as elements (the output layer skips text inside table bboxes).
-    let text_refs: Vec<&TextChunk> = elements
-        .iter()
-        .filter_map(|e| match e {
-            Element::Text(t) => Some(t),
-            _ => None,
-        })
-        .collect();
-    let bordered = detect_tables(&text_refs, &segments, input.number);
-    let mut excl: Vec<BBox> = bordered.iter().map(|t| t.bbox).collect();
-    // Ruled (booktabs) tables bounded by wide horizontal rules — high-confidence.
-    let ruled = detect_ruled_tables(&text_refs, &segments, &excl, input.number);
-    excl.extend(ruled.iter().map(|t| t.bbox));
-    // Cluster (header-anchored) tables — highest coverage; high-confidence
-    // clean-grid path. Runs before the looser borderless fallback.
-    let cluster = detect_cluster_tables(&text_refs, &excl, input.number);
-    excl.extend(cluster.iter().map(|t| t.bbox));
-    // Borderless (alignment-based) tables on text not in any detected table.
-    let borderless = detect_borderless_tables(&text_refs, &excl);
-    drop(text_refs);
-    elements.extend(
-        bordered
-            .into_iter()
-            .chain(ruled)
-            .chain(cluster)
-            .chain(borderless)
-            .map(Element::Table),
-    );
-
-    Page {
-        number: input.number,
-        width: input.width,
-        height: input.height,
-        elements,
     }
 }
 
@@ -387,11 +413,12 @@ fn show_text(
     ts: &mut TextState,
     ctm: &Matrix,
     out: &mut Vec<Element>,
-    page: usize,
-    page_size: (f32, f32),
-    fonts: &HashMap<String, FontInfo>,
+    ctx: &Ctx,
+    in_form: bool,
 ) {
-    let font = ts.font.as_ref().and_then(|name| fonts.get(name));
+    let page = ctx.page_no;
+    let page_size = ctx.page_size;
+    let font = ts.font.as_ref().and_then(|name| ctx.fonts.get(name));
 
     // Decode text and pen-advance metrics via the font, or fall back to
     // Latin-1 + a flat estimate when the font is unknown.
@@ -454,7 +481,9 @@ fn show_text(
             confidence: 1.0,
             bold: font.map(|f| f.is_bold()).unwrap_or(false),
             hidden,
-            source: None,
+            // Form-extracted text is tagged: it is usually figure/diagram/
+            // stamp content, and layout must not classify it as headings.
+            source: in_form.then(|| "form".to_string()),
             group: None,
         }));
     }
@@ -523,6 +552,7 @@ mod tests {
             content: content.as_bytes().to_vec(),
             fonts: HashMap::new(),
             images: HashMap::new(),
+            forms: HashMap::new(),
         })
     }
 

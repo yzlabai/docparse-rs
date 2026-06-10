@@ -215,10 +215,19 @@ fn font_descriptor<'a>(doc: &'a PdfDocument, fd: &'a Dictionary) -> Option<&'a D
 /// Build decoders for every font in a page's resources (with Pages-tree
 /// inheritance for both `/Resources` and the font dict).
 pub fn build_page_fonts(doc: &PdfDocument, page_id: ObjectId) -> HashMap<String, FontInfo> {
+    match resolve_resources(doc, page_id) {
+        Some(resources) => build_fonts_from_resources(doc, resources),
+        None => HashMap::new(),
+    }
+}
+
+/// Build font decoders from an explicit Resources dictionary (pages and Form
+/// XObjects share this path — forms carry their own resources).
+pub fn build_fonts_from_resources(
+    doc: &PdfDocument,
+    resources: &Dictionary,
+) -> HashMap<String, FontInfo> {
     let mut out = HashMap::new();
-    let Some(resources) = resolve_resources(doc, page_id) else {
-        return out;
-    };
     let Some(Object::Dictionary(fonts)) = resources.get(b"Font").ok().and_then(|o| deref(doc, o))
     else {
         return out;

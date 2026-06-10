@@ -54,6 +54,7 @@ impl DocumentParser for PdfParser {
             let (width, height) = page_dimensions(&doc, page_id);
             let fonts = font::build_page_fonts(&doc, page_id);
             let images = images::build_page_images(&doc, page_id);
+            let forms = images::build_page_forms(&doc, page_id);
             inputs.push(PageInput {
                 number: number as usize,
                 width,
@@ -61,6 +62,7 @@ impl DocumentParser for PdfParser {
                 content,
                 fonts,
                 images,
+                forms,
             });
         }
 

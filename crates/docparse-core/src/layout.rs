@@ -68,6 +68,9 @@ pub struct Line {
     pub bold: bool,
     /// True when every chunk on the line uses a monospace font (code signal).
     pub mono: bool,
+    /// True when the line came from a Form XObject (figure/stamp content —
+    /// excluded from heading classification).
+    pub form: bool,
 }
 
 /// A body block: a paragraph or a heading, after grouping lines. Carries page +
@@ -140,6 +143,7 @@ fn reconstruct_lines_inner(chunks: &[&TextChunk]) -> Vec<Line> {
                 line.size = line.size.max(c.font_size);
                 line.bold = line.bold && c.bold;
                 line.mono = line.mono && is_mono_font(c.font.as_deref());
+                line.form = line.form && c.source.as_deref() == Some("form");
             }
             _ => {
                 if let Some(line) = cur.take() {
@@ -154,6 +158,7 @@ fn reconstruct_lines_inner(chunks: &[&TextChunk]) -> Vec<Line> {
                     page: c.page,
                     bold: c.bold,
                     mono: is_mono_font(c.font.as_deref()),
+                    form: c.source.as_deref() == Some("form"),
                 });
             }
         }
@@ -288,6 +293,7 @@ struct Acc {
     y_bot: f32,
     bold: bool,
     mono: bool,
+    form: bool,
     /// Per-line (x0, text) — kept for code blocks, whose reassembly needs
     /// line breaks and geometric indentation instead of paragraph joining.
     raw: Vec<(f32, String)>,
@@ -310,6 +316,7 @@ impl Acc {
             y_bot: line.cy - line.size / 2.0,
             bold: line.bold,
             mono: line.mono,
+            form: line.form,
             raw: vec![(line.x0, text2)],
         }
     }
@@ -339,6 +346,7 @@ impl Acc {
         self.lines += 1;
         self.bold = self.bold && line.bold;
         self.mono = self.mono && line.mono;
+        self.form = self.form && line.form;
         self.raw.push((line.x0, text.to_string()));
         self.x0_min = self.x0_min.min(line.x0);
         self.x1_max = self.x1_max.max(line.x1);
@@ -494,6 +502,7 @@ fn make_block(a: Acc, body_size: f32) -> Block {
     let heading = a.lines == 1
         && !looks_like_code(&a.text)
         && !a.mono
+        && !a.form
         && ((body_size > 0.0 && a.size > body_size * 1.25)
             || is_heading_text(&a.text)
             || (a.bold && short));
@@ -629,6 +638,7 @@ mod tests {
             page: 1,
             bold: false,
             mono: false,
+            form: false,
         }
     }
 
@@ -700,6 +710,7 @@ mod tests {
             page: 1,
             bold: false,
             mono: true,
+            form: false,
         };
         let lines = vec![
             mk("fn main() {", 100.0, 0.0),

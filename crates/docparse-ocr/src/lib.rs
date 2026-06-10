@@ -260,6 +260,17 @@ impl Enhancer for PpOcrEnhancer {
             return None;
         }
 
+        // Mixed pages (G4): the deterministic text layer wins — drop OCR
+        // results that substantially overlap existing visible text so the
+        // page never carries the same words twice.
+        let existing: Vec<docparse_core::ir::BBox> = page
+            .elements
+            .iter()
+            .filter_map(|e| match e {
+                Element::Text(t) if !t.hidden => Some(t.bbox),
+                _ => None,
+            })
+            .collect();
         let mut elements = page.elements.clone();
         let (bw, bh) = (img.bbox.x1 - img.bbox.x0, img.bbox.y1 - img.bbox.y0);
         for (text, [px0, py0, px1, py1], conf) in lines {
@@ -268,6 +279,10 @@ impl Enhancer for PpOcrEnhancer {
             // Pixel y runs top-down; PDF y runs bottom-up.
             let y1 = img.bbox.y1 - py0 as f32 / h as f32 * bh;
             let y0 = img.bbox.y1 - py1 as f32 / h as f32 * bh;
+            let ocr_box = BBox { x0, y0, x1, y1 };
+            if overlaps_existing(&ocr_box, &existing) {
+                continue;
+            }
             elements.push(Element::Text(TextChunk {
                 text,
                 bbox: BBox { x0, y0, x1, y1 },
@@ -285,6 +300,16 @@ impl Enhancer for PpOcrEnhancer {
         }
         Some(elements)
     }
+}
+
+/// Whether more than half of `b`'s area is covered by any existing text box.
+fn overlaps_existing(b: &BBox, existing: &[BBox]) -> bool {
+    let area = ((b.x1 - b.x0) * (b.y1 - b.y0)).max(1e-6);
+    existing.iter().any(|e| {
+        let ix = (b.x1.min(e.x1) - b.x0.max(e.x0)).max(0.0);
+        let iy = (b.y1.min(e.y1) - b.y0.max(e.y0)).max(0.0);
+        ix * iy / area > 0.5
+    })
 }
 
 fn area(i: &ImageChunk) -> f32 {
@@ -577,5 +602,51 @@ mod tests {
         let out = sanitize_dims(&input);
         assert_eq!(out.len(), input.len());
         assert!(!out.windows(21).any(|w| w == b"p2o.DynamicDimension."));
+    }
+}
+
+#[cfg(test)]
+mod mixed_tests {
+    use super::overlaps_existing;
+    use docparse_core::ir::BBox;
+
+    #[test]
+    fn ocr_overlapping_digital_text_is_dropped() {
+        let existing = vec![BBox {
+            x0: 0.0,
+            y0: 0.0,
+            x1: 100.0,
+            y1: 20.0,
+        }];
+        // fully inside existing text → dropped
+        assert!(overlaps_existing(
+            &BBox {
+                x0: 10.0,
+                y0: 5.0,
+                x1: 90.0,
+                y1: 15.0
+            },
+            &existing
+        ));
+        // elsewhere on the page → kept
+        assert!(!overlaps_existing(
+            &BBox {
+                x0: 0.0,
+                y0: 100.0,
+                x1: 80.0,
+                y1: 120.0
+            },
+            &existing
+        ));
+        // grazing overlap (<50%) → kept
+        assert!(!overlaps_existing(
+            &BBox {
+                x0: 90.0,
+                y0: 10.0,
+                x1: 200.0,
+                y1: 30.0
+            },
+            &existing
+        ));
     }
 }

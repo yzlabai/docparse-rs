@@ -22,6 +22,10 @@ pub enum QualityFlag {
     /// (prompt-injection vector; N5a). Count in `hidden_chunks`; the flagged
     /// chunks remain in the IR JSON for audit.
     HiddenTextPresent,
+    /// The page has a real text layer AND a large raster with pixel payload
+    /// (e.g. an inserted scan/stamp) — region-level OCR can recover the
+    /// raster's text without touching the digital text (G4).
+    MixedTextAndScan,
 }
 
 /// A computed quality read on a [`Document`]. Serializable for CLI/observability.
@@ -169,6 +173,15 @@ pub fn assess_page(page: &Page) -> PageAssessment {
     }
     if garbled_ratio > 0.1 {
         flags.push(QualityFlag::HighGarble);
+    }
+    // Mixed page: digital text + a raster that carries pixels (scan-shaped).
+    if has_text
+        && page
+            .elements
+            .iter()
+            .any(|e| matches!(e, Element::Image(i) if !i.data.is_empty()))
+    {
+        flags.push(QualityFlag::MixedTextAndScan);
     }
     PageAssessment {
         page: page.number,

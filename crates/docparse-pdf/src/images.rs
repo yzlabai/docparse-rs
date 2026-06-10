@@ -12,14 +12,28 @@
 //! Flate/ASCII85 raw bitmaps with 8 bpc, 1 or 3 components (Gray8/Rgb8).
 //! TODO: JBIG2/CCITT/JPX scans are recorded position-only (`ImageKind::None`)
 //! — affected pages keep an auditable Image element but can't be OCR'd yet.
-//! TODO: only images referenced *directly* by the page content are collected;
-//! a scan wrapped in a Form XObject is missed entirely (the interpreter does
-//! not execute form content streams) — such a page still parses, but the OCR
-//! route sees no image. Needs form-stream interpretation to close.
+//! Form XObjects are resolved too (G4): each form carries its own content
+//! stream, /Matrix and resources (fonts/images/nested forms, resolved up
+//! front with a depth cap against cycles) — the interpreter executes them
+//! recursively so text and scans inside forms are no longer missed.
 
+use crate::font::{build_fonts_from_resources, FontInfo};
+use crate::matrix::Matrix;
 use docparse_core::ir::ImageKind;
-use lopdf::{Document as PdfDocument, Object, ObjectId, Stream};
+use lopdf::{Dictionary, Document as PdfDocument, Object, ObjectId, Stream};
 use std::collections::HashMap;
+
+/// Maximum Form XObject nesting resolved at build time (cycle guard).
+pub const MAX_FORM_DEPTH: usize = 4;
+
+/// A Form XObject with its own content stream and pre-resolved resources.
+pub struct FormX {
+    pub content: Vec<u8>,
+    pub matrix: Matrix,
+    pub fonts: HashMap<String, FontInfo>,
+    pub images: HashMap<String, XImage>,
+    pub forms: HashMap<String, FormX>,
+}
 
 /// An undecoded image XObject, resolved off the shared document.
 pub struct XImage {
@@ -69,33 +83,54 @@ impl XImage {
     }
 }
 
-/// Resolve all image XObjects reachable from a page's resources, keyed by the
-/// resource name used by `Do`.
+/// Resolve image XObjects from a page's resources, keyed by `Do` name.
 pub fn build_page_images(doc: &PdfDocument, page_id: ObjectId) -> HashMap<String, XImage> {
-    let mut out = HashMap::new();
-    let Ok(page) = doc.get_dictionary(page_id) else {
-        return out;
-    };
-    let Some(res) = page
-        .get(b"Resources")
+    match page_resources(doc, page_id) {
+        Some(res) => build_images_from_resources(doc, &res),
+        None => HashMap::new(),
+    }
+}
+
+/// Resolve Form XObjects (with their own resources, recursively) from a page.
+pub fn build_page_forms(doc: &PdfDocument, page_id: ObjectId) -> HashMap<String, FormX> {
+    match page_resources(doc, page_id) {
+        Some(res) => build_forms_from_resources(doc, &res, 0),
+        None => HashMap::new(),
+    }
+}
+
+fn page_resources(doc: &PdfDocument, page_id: ObjectId) -> Option<Dictionary> {
+    let page = doc.get_dictionary(page_id).ok()?;
+    page.get(b"Resources")
         .ok()
         .and_then(|o| doc.dereference(o).ok())
         .and_then(|(_, o)| o.as_dict().ok())
-    else {
-        return out;
-    };
+        .cloned()
+}
+
+fn xobject_streams(doc: &PdfDocument, res: &Dictionary) -> Vec<(String, Stream)> {
     let Some(xobjs) = res
         .get(b"XObject")
         .ok()
         .and_then(|o| doc.dereference(o).ok())
         .and_then(|(_, o)| o.as_dict().ok())
     else {
-        return out;
+        return Vec::new();
     };
-    for (name, obj) in xobjs.iter() {
-        let Ok((_, Object::Stream(s))) = doc.dereference(obj) else {
-            continue;
-        };
+    xobjs
+        .iter()
+        .filter_map(|(name, obj)| match doc.dereference(obj) {
+            Ok((_, Object::Stream(s))) => {
+                Some((String::from_utf8_lossy(name).into_owned(), s.clone()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn build_images_from_resources(doc: &PdfDocument, res: &Dictionary) -> HashMap<String, XImage> {
+    let mut out = HashMap::new();
+    for (name, s) in xobject_streams(doc, res) {
         if s.dict
             .get(b"Subtype")
             .and_then(|o| o.as_name())
@@ -115,11 +150,77 @@ pub fn build_page_images(doc: &PdfDocument, page_id: ObjectId) -> HashMap<String
             continue; // TODO: 1-bit (CCITT/JBIG2) scans — position-only for now
         }
         out.insert(
-            String::from_utf8_lossy(name).into_owned(),
+            name,
             XImage {
                 width: width as u32,
                 height: height as u32,
-                stream: s.clone(),
+                stream: s,
+            },
+        );
+    }
+    out
+}
+
+fn build_forms_from_resources(
+    doc: &PdfDocument,
+    res: &Dictionary,
+    depth: usize,
+) -> HashMap<String, FormX> {
+    let mut out = HashMap::new();
+    if depth >= MAX_FORM_DEPTH {
+        return out;
+    }
+    for (name, s) in xobject_streams(doc, res) {
+        if s.dict
+            .get(b"Subtype")
+            .and_then(|o| o.as_name())
+            .unwrap_or(b"?")
+            != b"Form"
+        {
+            continue;
+        }
+        let matrix = match s.dict.get(b"Matrix").ok().and_then(|o| o.as_array().ok()) {
+            Some(arr) if arr.len() == 6 => {
+                let v: Vec<f64> = arr
+                    .iter()
+                    .map(|o| match o {
+                        Object::Integer(i) => *i as f64,
+                        Object::Real(r) => *r as f64,
+                        _ => 0.0,
+                    })
+                    .collect();
+                Matrix {
+                    a: v[0],
+                    b: v[1],
+                    c: v[2],
+                    d: v[3],
+                    e: v[4],
+                    f: v[5],
+                }
+            }
+            _ => Matrix::identity(),
+        };
+        let Ok(content) = s.decompressed_content() else {
+            continue;
+        };
+        // A form's own resources; fall back to the parent's when absent
+        // (allowed by the spec for legacy files).
+        let form_res = s
+            .dict
+            .get(b"Resources")
+            .ok()
+            .and_then(|o| doc.dereference(o).ok())
+            .and_then(|(_, o)| o.as_dict().ok())
+            .cloned()
+            .unwrap_or_else(|| res.clone());
+        out.insert(
+            name,
+            FormX {
+                content,
+                matrix,
+                fonts: build_fonts_from_resources(doc, &form_res),
+                images: build_images_from_resources(doc, &form_res),
+                forms: build_forms_from_resources(doc, &form_res, depth + 1),
             },
         );
     }

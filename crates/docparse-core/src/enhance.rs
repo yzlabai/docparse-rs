@@ -34,6 +34,8 @@ impl Capability {
             // Hidden text is already filtered deterministically (N5a); it is
             // an audit signal, not a deficiency a model could repair.
             QualityFlag::HiddenTextPresent => false,
+            // A scan region pasted into a digital page — OCR territory.
+            QualityFlag::MixedTextAndScan => self.handles_scanned,
         }
     }
 }
