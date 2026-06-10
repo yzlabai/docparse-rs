@@ -1,7 +1,7 @@
 # 测评总览 · docparse-rs vs OpenDataLoader / Docling(2026-06-10,全功能落地后)
 
 > 本文是十大模块全部闭合后的**综合测评**:质量记分牌(双参照)+ 差异化记分牌(实测)+ OCR 能力轴(N3 新增)+ 按 roadmap §2 四大战场的逐项判定。
-> 单项明细:[ODL 对比](2026-06-09-odl-comparison.md) · [Docling 对比](2026-06-09-docling-comparison.md) · [差异化指标](2026-06-10-differentiation-metrics.md) · [N2 服务化](2026-06-10-n2-serving.md)
+> 单项明细:[ODL 对比](2026-06-09-odl-comparison.md) · [Docling 对比](2026-06-09-docling-comparison.md) · [差异化指标](2026-06-10-differentiation-metrics.md) · [N2 服务化](2026-06-10-n2-serving.md) · **平衡视角**(把 Docling 优势摆全):[客观对比](../refer/docling-objective-comparison.md)
 > ⚠️ 口径先说清:质量分是**与参照系统的一致度**(agreement),不是对人工真值的准确率;TEDS 为近似实现;吞吐对比中 ODL/Docling 取其**公开宣称值**,非同机同台。
 
 ## 1. 质量记分牌(born-digital LTR,一致度)
@@ -26,7 +26,7 @@
 | 解析延迟(预热) | **<10ms** | Docling 冷启动需加载模型(秒级) | ✅ |
 | 吞吐(born-digital) | **700 页/s**(14 页文档,3 次中位) | ODL 宣称 0.02s/页≈50 页/s;Docling CPU 典型 ~1 页/s 量级(其报告) | **~14×/~700×**(宣称值口径) |
 | 确定性 | **20/20** 逐字节一致;且 **CLI/MCP/REST 跨接口逐字节一致**(含 OCR 路径) | Docling 神经管线不保证 | ✅ 独有 |
-| 引用可定位率 | **216/216 (100%)** chunk 带 page+bbox,locate 反查闭环 | Docling 引用非全链路 | ✅ |
+| 引用可定位率 | **216/216 (100%)** chunk 带 page+bbox,`locate` 反查闭环 | Docling item 亦带 bbox provenance;我方增量在反查闭环与 100% 保证 | ✅ |
 
 ## 3. OCR 能力轴(N3 后新增的战场)
 
