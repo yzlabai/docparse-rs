@@ -39,8 +39,39 @@
   2. **最难双栏论文首页**：`2203` 0.57、`2206` 0.61（作者块/版权脚注多栏阅读顺序；且 ODL 自身文本粘连如 `public,largeground`，无法在不退化下追平）。
 - 确定性这条路的**文本/阅读顺序/标题/表格检出**都已采到大头；继续微调边际 <0.01 且回归风险升（本会话 5 个净负实验已验证并回退）。
 
-## 四、进度标注与下一步
+## 四、进度标注
 
 - ✅ 表格：cluster P1a/P1b 并入（bordered→ruled→cluster→borderless 四检测器）；P1c 否决留档。
 - ✅ 评测：两个 GT 提取器修复，记分牌反映真实；clean LTR 达标。
-- ⬜ **下一步价值在 N3（外接 enhancer 边界）或 N2（服务化）**——聚合剩余 gap = CJK + 复杂版面 = 神经/版面模型，需模型/依赖选型决策。详见 [plans/next-iteration.md](../plans/next-iteration.md)。
+
+## 五、后续会话延伸（2026-06-10 同日，本节为追加）
+
+上半场收官后继续推进,**近期里程碑基本清空**。各项独立 devlog 见 [devlogs/](.)。
+
+### 1. chunk 栏序修复——双栏论文首页不是天花板,是我方 bug
+诊断"`2203`/`2206` 双栏首页"被判为确定性天花板,逐层排查发现 layout 读序全对,坏在 chunk 组装的**页级 y-sort 毁掉栏序**（左右栏 y 重叠被重排）。改为保 layout 序、表格按栏拼接。**`2203` NID 0.568→0.936、`2206` 0.615→0.748;vs ODL 0.722→0.761、vs Docling 0.763→0.832**,仅 `normal_4pages` -0.03（CJK 已知）。[chunk-order-fix](2026-06-10-chunk-order-fix.md)
+
+### 2. N2 服务化（MCP + REST）——agent 可直连
+- **MCP stdio**（`docparse mcp`,手写 JSON-RPC,**零新依赖**）:parse_document/get_chunks/locate 三 tool。
+- **REST**（`docparse serve`,axum+tokio,用户批准）:`POST /parse` + `/healthz`,与 CLI **逐字节一致**。
+- [n2-serving](2026-06-10-n2-serving.md)。模块 10 收口。
+
+### 3. N5 安全预检——模块 9 收口
+- **N5a 隐藏文本过滤**（防 prompt injection）:`Tr 3/7`/页外/微字 → `hidden`,渲染输出排除、IR 保留可审计、quality 计数;schema 0.3.0。[n5a](2026-06-10-n5a-hidden-text.md)
+- **N5b 资源防护**:`core::limits` 手写 ZIP 中央目录预检（zip-bomb,不解压）+ 页数早停,零依赖。[n5b](2026-06-10-n5b-resource-guards.md)
+
+### 4. 记分牌诚实化第二轮——又三个测量 bug + 一个真产品 bug
+TEDS 按内容配对（非索引）+ 只评 2D 表;MHS 修跑页眉漏滤（数字折叠 + 边沿判定）;NFKC 连字归一。**TEDS vs ODL 0.044→0.098、vs Docling 0.110→0.187;MHS 0.614→0.627 / 0.625→0.645;NID 微涨**。[running-header-and-teds-honesty](2026-06-10-running-header-and-teds-honesty.md)
+
+### 当前记分牌（去 RTL born-digital LTR）
+| 同台 | NID | MHS | TEDS |
+|---|---|---|---|
+| vs ODL（15）| **0.764** | **0.627** | 0.098 |
+| vs Docling（10）| **0.833** | **0.645** | 0.187 |
+
+### 已完成 / 仅剩
+- ✅ M1–M7、N1（评测）、N2（服务化）、N4 大部（表格四检测器）、N5（a 隐藏文本 + b 资源防护）。
+- ⬜ **近期仅剩 N3 真实 enhancer**——需 OCR/模型**部署选型决策**（tesseract 外接进程 vs HTTP VLM），用户已暂缓。
+- 🧊 其余（N4 表格 recall、CJK 版面）属**确定性天花板**（P1c 已证放宽门必回归）或需人工真值/神经模型。
+
+> **本会话最大教训**:记分牌的大跳**几乎全是评测/输出管线 bug,不是解析能力变化**（列表漏算、chunk 栏序、TEDS 配对、页眉漏滤）。分数可疑时**先怀疑管线**;agreement 指标的 onlyours/onlyodl 差集是最快的 bug 探针。
