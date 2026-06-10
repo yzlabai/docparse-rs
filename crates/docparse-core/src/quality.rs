@@ -18,6 +18,10 @@ pub enum QualityFlag {
     PartialTextCoverage,
     /// A high fraction of decoded characters look garbled (control/replacement).
     HighGarble,
+    /// Human-invisible text was found and excluded from rendered outputs
+    /// (prompt-injection vector; N5a). Count in `hidden_chunks`; the flagged
+    /// chunks remain in the IR JSON for audit.
+    HiddenTextPresent,
 }
 
 /// A computed quality read on a [`Document`]. Serializable for CLI/observability.
@@ -33,6 +37,10 @@ pub struct QualityReport {
     pub garbled_chars: usize,
     /// `garbled_chars / total_chars` in [0,1].
     pub garbled_ratio: f32,
+    /// Text chunks classified hidden (invisible render mode / off-page / tiny
+    /// font) and excluded from rendered outputs.
+    #[serde(default)]
+    pub hidden_chunks: usize,
     pub flags: Vec<QualityFlag>,
 }
 
@@ -55,11 +63,18 @@ pub fn analyze(doc: &Document) -> QualityReport {
     let mut text_pages = 0;
     let mut total_chars = 0usize;
     let mut garbled_chars = 0usize;
+    let mut hidden_chunks = 0usize;
 
     for page in &doc.pages {
         let mut page_has_text = false;
         for el in &page.elements {
             if let Element::Text(t) = el {
+                // Hidden text is excluded from every visible signal — it
+                // shouldn't count as page coverage — but is tallied for audit.
+                if t.hidden {
+                    hidden_chunks += 1;
+                    continue;
+                }
                 for c in t.text.chars() {
                     total_chars += 1;
                     if is_garbled(c) {
@@ -96,6 +111,9 @@ pub fn analyze(doc: &Document) -> QualityReport {
     if garbled_ratio > 0.1 {
         flags.push(QualityFlag::HighGarble);
     }
+    if hidden_chunks > 0 {
+        flags.push(QualityFlag::HiddenTextPresent);
+    }
 
     QualityReport {
         pages,
@@ -104,6 +122,7 @@ pub fn analyze(doc: &Document) -> QualityReport {
         total_chars,
         garbled_chars,
         garbled_ratio,
+        hidden_chunks,
         flags,
     }
 }
@@ -187,6 +206,7 @@ mod tests {
                 page: number,
                 confidence: 1.0,
                 bold: false,
+                hidden: false,
             })]
         };
         Page {

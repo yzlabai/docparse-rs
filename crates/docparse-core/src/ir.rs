@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// Version of this IR schema. Bumped when the serialized shape changes so an
 /// agent consuming the JSON can check compatibility. Semantic versioning.
-pub const SCHEMA_VERSION: &str = "0.2.0";
+pub const SCHEMA_VERSION: &str = "0.3.0";
 
 /// Where a [`Document`] came from: which parser/version produced it, under
 /// which schema. The agent-facing trust/repro anchor (one per document; an
@@ -77,6 +77,12 @@ pub struct TextChunk {
     /// detection when headings are body-size but bold.
     #[serde(default)]
     pub bold: bool,
+    /// True when the text is invisible to a human reader (render mode Tr 3/7,
+    /// off-page bbox, or sub-readable font size) — a prompt-injection vector
+    /// for agents. Hidden chunks stay in the IR (flagged, auditable) but are
+    /// excluded from rendered outputs via [`Page::text_chunks`] (N5a).
+    #[serde(default)]
+    pub hidden: bool,
 }
 
 /// A raster/vector image region. Position only for now (no pixel extraction yet).
@@ -122,12 +128,15 @@ pub struct Page {
 }
 
 impl Page {
-    /// Borrow just the text chunks, in emission order.
+    /// Borrow the *visible* text chunks, in emission order — the input to
+    /// layout/output/chunking. Hidden text (see [`TextChunk::hidden`]) is
+    /// excluded here so every rendered surface drops it; it stays in the
+    /// serialized IR for audit.
     pub fn text_chunks(&self) -> Vec<&TextChunk> {
         self.elements
             .iter()
             .filter_map(|e| match e {
-                Element::Text(t) => Some(t),
+                Element::Text(t) if !t.hidden => Some(t),
                 _ => None,
             })
             .collect()

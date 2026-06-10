@@ -11,8 +11,14 @@
 //! real font metrics); `Tc`/`Tw`/`Tz` are honored in the displacement formula.
 //!
 //! Known approximations (tracked as TODOs):
-//! - Text rise (`Ts`) and render mode (`Tr`, e.g. invisible OCR text) are
-//!   ignored; an unknown font still falls back to Latin-1 + 0.5 em/char.
+//! - Text rise (`Ts`) is ignored; an unknown font still falls back to
+//!   Latin-1 + 0.5 em/char.
+//!
+//! Security pre-check (N5a, ref ODL hidden-text filtering): text that a human
+//! can't see — render mode `Tr 3`/`Tr 7`, fully off-page bbox, or sub-readable
+//! font size — is emitted with `hidden: true` so the core excludes it from
+//! rendered outputs while keeping it auditable in the IR. TODO (flagged, not
+//! detected): same-color-as-background text, text occluded by images.
 
 use crate::font::FontInfo;
 use crate::matrix::Matrix;
@@ -47,6 +53,8 @@ struct TextState {
     word_spacing: f64,
     /// `Tz` horizontal scaling as a factor (100% → 1.0).
     h_scale: f64,
+    /// `Tr` text render mode. 3 = invisible, 7 = clip-only — both unseen.
+    render_mode: i64,
 }
 
 impl TextState {
@@ -60,6 +68,7 @@ impl TextState {
             char_spacing: 0.0,
             word_spacing: 0.0,
             h_scale: 1.0,
+            render_mode: 0,
         }
     }
 }
@@ -133,6 +142,11 @@ pub fn interpret(input: &PageInput) -> Page {
                     ts.h_scale = v / 100.0;
                 }
             }
+            "Tr" => {
+                if let Some(v) = num0(ops, 0) {
+                    ts.render_mode = v as i64;
+                }
+            }
             "Td" => {
                 if let (Some(tx), Some(ty)) = (num0(ops, 0), num0(ops, 1)) {
                     ts.tlm = Matrix::translate(tx, ty).mul(&ts.tlm);
@@ -164,6 +178,7 @@ pub fn interpret(input: &PageInput) -> Page {
                         &ctm,
                         &mut elements,
                         input.number,
+                        (input.width, input.height),
                         &input.fonts,
                     );
                 }
@@ -178,6 +193,7 @@ pub fn interpret(input: &PageInput) -> Page {
                         &ctm,
                         &mut elements,
                         input.number,
+                        (input.width, input.height),
                         &input.fonts,
                     );
                 }
@@ -246,6 +262,7 @@ pub fn interpret(input: &PageInput) -> Page {
                                 &ctm,
                                 &mut elements,
                                 input.number,
+                                (input.width, input.height),
                                 &input.fonts,
                             ),
                             _ => {
@@ -315,12 +332,17 @@ fn seg(a: (f64, f64), b: (f64, f64)) -> Segment {
 /// Fallback glyph advance (em fraction) when no font decoder is available.
 const FALLBACK_ADVANCE_EM: f64 = 0.5;
 
+/// Below this effective glyph height (pt) text is unreadable to a human and
+/// treated as hidden. Normal subscripts run 5–7pt; 1pt is far under legibility.
+const TINY_FONT_PT: f32 = 1.0;
+
 fn show_text(
     bytes: &[u8],
     ts: &mut TextState,
     ctm: &Matrix,
     out: &mut Vec<Element>,
     page: usize,
+    page_size: (f32, f32),
     fonts: &HashMap<String, FontInfo>,
 ) {
     let font = ts.font.as_ref().and_then(|name| fonts.get(name));
@@ -368,6 +390,11 @@ fn show_text(
             .iter()
             .map(|c| c.1)
             .fold(f64::NEG_INFINITY, f64::max) as f32;
+        // Hidden-text classification (N5a): invisible render mode, fully
+        // off-page, or sub-readable size — flagged, not dropped.
+        let (pw, ph) = page_size;
+        let off_page = x1 < 0.0 || y1 < 0.0 || x0 > pw || y0 > ph;
+        let hidden = matches!(ts.render_mode, 3 | 7) || off_page || (height as f32) < TINY_FONT_PT;
         out.push(Element::Text(TextChunk {
             text,
             bbox: BBox { x0, y0, x1, y1 },
@@ -376,6 +403,7 @@ fn show_text(
             page,
             confidence: 1.0,
             bold: font.map(|f| f.is_bold()).unwrap_or(false),
+            hidden,
         }));
     }
 
@@ -425,4 +453,58 @@ fn decode_bytes(bytes: &[u8]) -> String {
         .filter(|&&b| b >= 0x20)
         .map(|&b| b as char)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn page_with(content: &str) -> Page {
+        interpret(&PageInput {
+            number: 1,
+            width: 612.0,
+            height: 792.0,
+            content: content.as_bytes().to_vec(),
+            fonts: HashMap::new(),
+        })
+    }
+
+    fn texts(page: &Page) -> Vec<(&str, bool)> {
+        page.elements
+            .iter()
+            .filter_map(|e| match e {
+                Element::Text(t) => Some((t.text.as_str(), t.hidden)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn invisible_render_mode_is_hidden_and_resets() {
+        // Tr 3 hides; Tr 0 restores. The hidden chunk must still be emitted.
+        let p = page_with("BT /F1 12 Tf 100 700 Td 3 Tr (secret) Tj 0 Tr (visible) Tj ET");
+        assert_eq!(texts(&p), vec![("secret", true), ("visible", false)]);
+        // And the visible-only accessor drops it.
+        let visible: Vec<&str> = p.text_chunks().iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(visible, vec!["visible"]);
+    }
+
+    #[test]
+    fn clip_only_render_mode_is_hidden() {
+        let p = page_with("BT /F1 12 Tf 100 700 Td 7 Tr (clipped) Tj ET");
+        assert_eq!(texts(&p), vec![("clipped", true)]);
+    }
+
+    #[test]
+    fn off_page_text_is_hidden() {
+        // Positioned far left of the media box — invisible to a reader.
+        let p = page_with("BT /F1 12 Tf -500 700 Td (offpage) Tj 600 0 Td (onpage) Tj ET");
+        assert_eq!(texts(&p), vec![("offpage", true), ("onpage", false)]);
+    }
+
+    #[test]
+    fn tiny_font_text_is_hidden() {
+        let p = page_with("BT /F1 0.5 Tf 100 700 Td (micro) Tj /F1 5 Tf (subscript) Tj ET");
+        assert_eq!(texts(&p), vec![("micro", true), ("subscript", false)]);
+    }
 }

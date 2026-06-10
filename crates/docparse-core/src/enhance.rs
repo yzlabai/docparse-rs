@@ -31,6 +31,9 @@ impl Capability {
             QualityFlag::ScannedNoText => self.handles_scanned,
             QualityFlag::HighGarble => self.handles_garbled,
             QualityFlag::PartialTextCoverage => self.handles_scanned,
+            // Hidden text is already filtered deterministically (N5a); it is
+            // an audit signal, not a deficiency a model could repair.
+            QualityFlag::HiddenTextPresent => false,
         }
     }
 }
@@ -149,6 +152,7 @@ mod tests {
                 page: page.number,
                 confidence: 0.5,
                 bold: false,
+                hidden: false,
             })])
         }
     }
@@ -168,6 +172,7 @@ mod tests {
                 page: number,
                 confidence: 1.0,
                 bold: false,
+                hidden: false,
             })],
             None => vec![],
         };

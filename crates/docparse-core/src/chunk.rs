@@ -117,9 +117,8 @@ pub fn chunk_document_with(doc: &Document, opts: ChunkOptions) -> Vec<Chunk> {
         // "Follows in its column" = horizontal overlap + top edge below — for
         // previously spliced tables too, else a right-column table would jump
         // ahead of an unrelated left-column one on y alone.
-        let follows = |bb: &BBox, t: &Table| {
-            bb.x0 < t.bbox.x1 && t.bbox.x0 < bb.x1 && bb.y1 < t.bbox.y1
-        };
+        let follows =
+            |bb: &BBox, t: &Table| bb.x0 < t.bbox.x1 && t.bbox.x0 < bb.x1 && bb.y1 < t.bbox.y1;
         for t in tables_by_y {
             let pos = items
                 .iter()
@@ -265,6 +264,7 @@ mod tests {
             page,
             confidence: 1.0,
             bold: false,
+            hidden: false,
         })
     }
 

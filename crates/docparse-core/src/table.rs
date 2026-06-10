@@ -637,6 +637,7 @@ mod tests {
             page: 1,
             confidence: 1.0,
             bold: false,
+            hidden: false,
         }
     }
 

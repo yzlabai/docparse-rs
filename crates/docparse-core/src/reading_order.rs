@@ -152,6 +152,7 @@ mod tests {
             page: 0,
             confidence: 1.0,
             bold: false,
+            hidden: false,
         }
     }
 
