@@ -451,6 +451,7 @@ fn show_text(
             bold: font.map(|f| f.is_bold()).unwrap_or(false),
             hidden,
             source: None,
+            group: None,
         }));
     }
 

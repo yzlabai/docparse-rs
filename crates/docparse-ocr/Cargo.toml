@@ -11,3 +11,4 @@ docparse-core = { path = "../docparse-core" }
 anyhow.workspace = true
 tract-onnx.workspace = true
 zune-jpeg.workspace = true
+docparse-raster = { path = "../docparse-raster" }

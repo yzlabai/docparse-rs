@@ -208,6 +208,7 @@ mod tests {
                 bold: false,
                 hidden: false,
                 source: None,
+                group: None,
             })]
         };
         Page {
@@ -373,6 +374,7 @@ mod profile_tests {
             bold: false,
             hidden: false,
             source: source.map(Into::into),
+            group: None,
         })
     }
 

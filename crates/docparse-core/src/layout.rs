@@ -574,6 +574,7 @@ mod tests {
             bold: false,
             hidden: false,
             source: None,
+            group: None,
         };
         let stamp = TextChunk {
             text: "arXiv:1234".into(),
@@ -590,6 +591,7 @@ mod tests {
             bold: false,
             hidden: false,
             source: None,
+            group: None,
         };
         let lines = reconstruct_lines(&[&normal, &stamp]);
         assert_eq!(lines.len(), 1);
@@ -680,6 +682,7 @@ mod tests {
                     bold: false,
                     hidden: false,
                     source: None,
+                    group: None,
                 })
             })
             .collect();

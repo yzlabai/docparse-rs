@@ -17,6 +17,8 @@
 //! dots tract can't parse — sanitized in-memory at load. TODO: orientation
 //! (cls) model — upright scans assumed.
 
+pub mod layout;
+
 use anyhow::{Context, Result};
 use docparse_core::enhance::{Capability, Enhancer};
 use docparse_core::ir::{BBox, Element, ImageChunk, ImageKind, Page, TextChunk};
@@ -272,6 +274,7 @@ impl Enhancer for PpOcrEnhancer {
                 bold: false,
                 hidden: false,
                 source: Some("ocr:ppocr-v4".into()),
+                group: None,
             }));
         }
         Some(elements)

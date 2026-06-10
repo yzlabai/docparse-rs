@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// Version of this IR schema. Bumped when the serialized shape changes so an
 /// agent consuming the JSON can check compatibility. Semantic versioning.
-pub const SCHEMA_VERSION: &str = "0.4.0";
+pub const SCHEMA_VERSION: &str = "0.5.0";
 
 /// Where a [`Document`] came from: which parser/version produced it, under
 /// which schema. The agent-facing trust/repro anchor (one per document; an
@@ -88,6 +88,13 @@ pub struct TextChunk {
     /// downstream can audit exactly which text came from a model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// Reading group (G2 layout enhancer): when set, layout reconstruction
+    /// orders groups by this id before running XY-cut *within* each group —
+    /// letting a layout model dictate macro reading order on hard pages while
+    /// the deterministic geometry still rules inside regions. `None` = no
+    /// grouping (sorts after all groups if mixed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<u32>,
 }
 
 /// Pixel format of an extracted raster image payload.

@@ -154,6 +154,7 @@ mod tests {
             bold: false,
             hidden: false,
             source: None,
+            group: None,
         }
     }
 

@@ -75,6 +75,15 @@ struct Cli {
     /// JSON to stderr — the routing signal, observable.
     #[arg(long)]
     profile: bool,
+
+    /// Re-derive macro reading order with the layout model (renders each page
+    /// on demand — pure Rust, opt-in; PDF only). Heavier: ~2.4s/page.
+    #[arg(long)]
+    layout: bool,
+
+    /// Path to the DocLayout-YOLO ONNX model.
+    #[arg(long, default_value = "models/layout/doclayout_yolo.onnx")]
+    layout_model: PathBuf,
 }
 
 #[derive(Subcommand)]
@@ -171,6 +180,26 @@ fn main() -> anyhow::Result<()> {
             eprintln!("{}", docparse_core::enhance::report_json(&report));
         } else {
             eprintln!("[]");
+        }
+    }
+
+    if cli.layout {
+        if input
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("pdf"))
+            .unwrap_or(false)
+        {
+            let pdf_bytes = std::fs::read(&input)?;
+            let n = docparse_ocr::layout::enhance_document(
+                &mut doc,
+                pdf_bytes,
+                &cli.layout_model,
+                2.0,
+            )?;
+            eprintln!("{{\"layout_enhanced_pages\": {n}}}");
+        } else {
+            eprintln!("--layout currently supports PDF inputs only; skipped");
         }
     }
 
