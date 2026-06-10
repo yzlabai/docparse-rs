@@ -73,6 +73,12 @@ pub fn to_markdown(doc: &Document) -> String {
             if t.is_empty() {
                 continue;
             }
+            if block.code {
+                md.push_str("```\n");
+                md.push_str(&block.text);
+                md.push_str("\n```\n\n");
+                continue;
+            }
             if block.heading {
                 md.push_str("## ");
             }

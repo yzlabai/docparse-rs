@@ -28,6 +28,22 @@ fn is_vertical(c: &TextChunk) -> bool {
     c.text.chars().count() >= 4 && c.bbox.height() > c.bbox.width() * 2.0
 }
 
+/// Whether a font's PostScript name reads as monospace. Catches the common
+/// families (Courier/…Mono/Menlo/Consolas/Monaco) plus TeX typewriter (cmtt)
+/// and "Typewriter" faces. TODO: the FontDescriptor FixedPitch flag would be
+/// authoritative; name-based covers the fonts seen in practice.
+fn is_mono_font(name: Option<&str>) -> bool {
+    let Some(n) = name else { return false };
+    let l = n.to_ascii_lowercase();
+    l.contains("mono")
+        || l.contains("courier")
+        || l.contains("menlo")
+        || l.contains("consolas")
+        || l.contains("monaco")
+        || l.contains("typewriter")
+        || l.contains("cmtt")
+}
+
 /// Whether a chunk's center lies inside any of the given (table) boxes — used
 /// to exclude table content from line/paragraph reconstruction.
 pub fn in_any(chunk: &TextChunk, boxes: &[crate::ir::BBox]) -> bool {
@@ -50,6 +66,8 @@ pub struct Line {
     pub page: usize,
     /// True when every chunk on the line is bold (heading signal).
     pub bold: bool,
+    /// True when every chunk on the line uses a monospace font (code signal).
+    pub mono: bool,
 }
 
 /// A body block: a paragraph or a heading, after grouping lines. Carries page +
@@ -58,6 +76,9 @@ pub struct Block {
     pub text: String,
     pub size: f32,
     pub heading: bool,
+    /// A monospace code block (≥2 mono lines); `text` preserves line breaks
+    /// and geometric indentation. Renders fenced in Markdown.
+    pub code: bool,
     pub page: usize,
     pub bbox: BBox,
 }
@@ -118,6 +139,7 @@ fn reconstruct_lines_inner(chunks: &[&TextChunk]) -> Vec<Line> {
                 line.x1 = c.bbox.x1;
                 line.size = line.size.max(c.font_size);
                 line.bold = line.bold && c.bold;
+                line.mono = line.mono && is_mono_font(c.font.as_deref());
             }
             _ => {
                 if let Some(line) = cur.take() {
@@ -131,6 +153,7 @@ fn reconstruct_lines_inner(chunks: &[&TextChunk]) -> Vec<Line> {
                     x1: c.bbox.x1,
                     page: c.page,
                     bold: c.bold,
+                    mono: is_mono_font(c.font.as_deref()),
                 });
             }
         }
@@ -264,10 +287,15 @@ struct Acc {
     y_top: f32,
     y_bot: f32,
     bold: bool,
+    mono: bool,
+    /// Per-line (x0, text) — kept for code blocks, whose reassembly needs
+    /// line breaks and geometric indentation instead of paragraph joining.
+    raw: Vec<(f32, String)>,
 }
 
 impl Acc {
     fn start(line: &Line, text: String, numeric: bool) -> Self {
+        let text2 = text.clone();
         Self {
             text,
             size: line.size,
@@ -281,6 +309,8 @@ impl Acc {
             y_top: line.cy + line.size / 2.0,
             y_bot: line.cy - line.size / 2.0,
             bold: line.bold,
+            mono: line.mono,
+            raw: vec![(line.x0, text2)],
         }
     }
     fn extend(&mut self, line: &Line, text: &str, numeric: bool) {
@@ -308,6 +338,8 @@ impl Acc {
         self.numeric = numeric;
         self.lines += 1;
         self.bold = self.bold && line.bold;
+        self.mono = self.mono && line.mono;
+        self.raw.push((line.x0, text.to_string()));
         self.x0_min = self.x0_min.min(line.x0);
         self.x1_max = self.x1_max.max(line.x1);
         self.y_bot = self.y_bot.min(line.cy - line.size / 2.0);
@@ -335,11 +367,15 @@ pub fn group_blocks(lines: &[Line], body_size: f32, fill_x: f32) -> Vec<Block> {
         }
         let numeric = is_numeric_row(t);
         let continues = cur.as_ref().is_some_and(|a| {
-            (a.cy - line.cy) <= a.size.max(1.0) * 1.8
-                && (line.size - a.size).abs() <= a.size * 0.2
-                && a.x1 >= fill_x
-                && !a.numeric
-                && !numeric
+            let gap_ok = (a.cy - line.cy) <= a.size.max(1.0) * 1.8;
+            let size_ok = (line.size - a.size).abs() <= a.size * 0.2;
+            // Monospace runs chain into code blocks regardless of the prose
+            // gates: code lines are short (never reach fill_x) and often
+            // numeric — the font itself is the continuation signal (G8a).
+            if a.mono && line.mono {
+                return gap_ok && size_ok;
+            }
+            gap_ok && size_ok && a.x1 >= fill_x && !a.numeric && !numeric
         });
 
         match cur.as_mut() {
@@ -421,6 +457,35 @@ fn looks_like_code(t: &str) -> bool {
 }
 
 fn make_block(a: Acc, body_size: f32) -> Block {
+    // Monospace runs of 2+ lines are code blocks: keep line breaks and
+    // reconstruct indentation from geometry (leading spaces are positioned,
+    // not encoded — one indent step ≈ 0.5 em per char cell). (G8a)
+    if a.mono && a.lines >= 2 {
+        let min_x0 = a.raw.iter().map(|(x, _)| *x).fold(f32::INFINITY, f32::min);
+        let cell = (a.size * 0.5).max(1.0);
+        let text = a
+            .raw
+            .iter()
+            .map(|(x0, t)| {
+                let indent = (((x0 - min_x0) / cell).round() as usize).min(40);
+                format!("{}{}", " ".repeat(indent), t)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Block {
+            text,
+            size: a.size,
+            heading: false,
+            code: true,
+            page: a.page,
+            bbox: BBox {
+                x0: a.x0_min,
+                y0: a.y_bot,
+                x1: a.x1_max,
+                y1: a.y_top,
+            },
+        };
+    }
     // A heading is a single-line block that is notably larger than body text,
     // whose text shape (numbered / all-caps) reads like a section header, or a
     // short fully-bold line (title-case subsection at body size) — and never a
@@ -428,6 +493,7 @@ fn make_block(a: Acc, body_size: f32) -> Block {
     let short = a.text.chars().count() <= 60;
     let heading = a.lines == 1
         && !looks_like_code(&a.text)
+        && !a.mono
         && ((body_size > 0.0 && a.size > body_size * 1.25)
             || is_heading_text(&a.text)
             || (a.bold && short));
@@ -435,6 +501,7 @@ fn make_block(a: Acc, body_size: f32) -> Block {
         text: a.text,
         size: a.size,
         heading,
+        code: false,
         page: a.page,
         bbox: BBox {
             x0: a.x0_min,
@@ -561,6 +628,7 @@ mod tests {
             x1,
             page: 1,
             bold: false,
+            mono: false,
         }
     }
 
@@ -617,6 +685,35 @@ mod tests {
         b.group = None;
         let lines = reconstruct_lines(&[&a, &b]);
         assert_eq!(lines[0].text, "A");
+    }
+
+    #[test]
+    fn mono_runs_become_code_blocks_with_indent() {
+        // Three monospace lines, the middle one indented by ~4 char cells
+        // (x0 = 4 * 0.5em * size = 20 for size 10).
+        let mk = |text: &str, cy: f32, x0: f32| Line {
+            text: text.into(),
+            size: 10.0,
+            cy,
+            x0,
+            x1: x0 + 60.0,
+            page: 1,
+            bold: false,
+            mono: true,
+        };
+        let lines = vec![
+            mk("fn main() {", 100.0, 0.0),
+            mk("let x = 1;", 88.0, 20.0),
+            mk("}", 76.0, 0.0),
+        ];
+        let blocks = group_blocks(&lines, 10.0, FILL);
+        assert_eq!(blocks.len(), 1, "mono run groups into one block");
+        assert!(blocks[0].code);
+        assert!(!blocks[0].heading);
+        assert_eq!(blocks[0].text, "fn main() {\n    let x = 1;\n}");
+        // A prose line is unaffected.
+        let prose = vec![line("Just a sentence.", 10.0, 50.0)];
+        assert!(!group_blocks(&prose, 10.0, FILL)[0].code);
     }
 
     #[test]
