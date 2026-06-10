@@ -1,0 +1,312 @@
+//! MCP (Model Context Protocol) server over stdio.
+//!
+//! What: exposes the parser as three MCP tools — `parse_document`,
+//! `get_chunks`, `locate` — so agents (Claude Code, claude.ai, …) can call
+//! docparse directly and get structured results with provenance + bbox
+//! citations, no shell wrapping.
+//!
+//! Why hand-written: the MCP stdio transport is newline-delimited JSON-RPC
+//! 2.0 with three methods we care about (`initialize`, `tools/list`,
+//! `tools/call`); `serde_json` covers that without an SDK, keeping the
+//! zero-dependency single-binary identity. Pinned to MCP protocol revision
+//! "2025-03-26" — revisit (or adopt the official `rmcp` SDK) if the spec
+//! moves in ways that matter here.
+//!
+//! Error model: protocol problems (bad JSON, unknown method/tool) are
+//! JSON-RPC errors; tool execution failures (unreadable file, parse error)
+//! are tool results with `isError: true` — the server never exits or panics
+//! on bad input, mirroring the parser's bad-page-yields-empty-Page policy.
+
+use docparse_core::output;
+use serde_json::{json, Value};
+use std::io::{BufRead, Write};
+
+const PROTOCOL_VERSION: &str = "2025-03-26";
+
+/// Run the stdio loop until stdin closes. One JSON-RPC message per line.
+pub fn serve() -> anyhow::Result<()> {
+    let stdin = std::io::stdin();
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
+    for line in stdin.lock().lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Some(resp) = handle_line(&line) {
+            writeln!(out, "{resp}")?;
+            out.flush()?;
+        }
+    }
+    Ok(())
+}
+
+/// Handle one incoming message; `None` for notifications (no response due).
+fn handle_line(line: &str) -> Option<String> {
+    let msg: Value = match serde_json::from_str(line) {
+        Ok(v) => v,
+        Err(e) => {
+            return Some(rpc_error(Value::Null, -32700, &format!("parse error: {e}")).to_string())
+        }
+    };
+    // A request carries an id; anything without one is a notification.
+    let id = match msg.get("id") {
+        Some(id) if !id.is_null() => id.clone(),
+        _ => return None,
+    };
+    let method = msg.get("method").and_then(Value::as_str).unwrap_or("");
+    let params = msg.get("params").cloned().unwrap_or_else(|| json!({}));
+
+    let outcome = match method {
+        "initialize" => Ok(json!({
+            // Echo the client's requested revision when present; we don't use
+            // revision-specific features beyond the basics pinned above.
+            "protocolVersion": params
+                .get("protocolVersion")
+                .and_then(Value::as_str)
+                .unwrap_or(PROTOCOL_VERSION),
+            "capabilities": { "tools": {} },
+            "serverInfo": {
+                "name": "docparse",
+                "version": env!("CARGO_PKG_VERSION"),
+            },
+        })),
+        "ping" => Ok(json!({})),
+        "tools/list" => Ok(json!({ "tools": tool_specs() })),
+        "tools/call" => call_tool(&params),
+        _ => Err((-32601, format!("method not found: {method}"))),
+    };
+    Some(
+        match outcome {
+            Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+            Err((code, message)) => rpc_error(id, code, &message),
+        }
+        .to_string(),
+    )
+}
+
+fn rpc_error(id: Value, code: i64, message: &str) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
+}
+
+fn tool_specs() -> Value {
+    json!([
+        {
+            "name": "parse_document",
+            "description": "Parse a local document (PDF/DOCX/HTML) into json, markdown, or text. \
+                            json carries provenance and positioned elements (PDF user space: \
+                            origin bottom-left, y up, pt).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Local file path" },
+                    "format": { "type": "string", "enum": ["json", "markdown", "text"],
+                                "description": "Output format (default json)" }
+                },
+                "required": ["path"]
+            }
+        },
+        {
+            "name": "get_chunks",
+            "description": "Parse a local document into retrieval chunks. Each chunk carries \
+                            page + bbox (citable source location), heading breadcrumb, and \
+                            char_len; the envelope carries provenance and a quality report.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Local file path" }
+                },
+                "required": ["path"]
+            }
+        },
+        {
+            "name": "locate",
+            "description": "Reverse citation lookup: given a page (1-based) and a point x,y in \
+                            PDF user space, return the chunk covering it (null if none).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Local file path" },
+                    "page": { "type": "integer", "description": "1-based page number" },
+                    "x": { "type": "number" },
+                    "y": { "type": "number" }
+                },
+                "required": ["path", "page", "x", "y"]
+            }
+        }
+    ])
+}
+
+/// Dispatch `tools/call`. Unknown tool = protocol error; tool failure = result
+/// with `isError: true` so the agent sees a structured, recoverable message.
+fn call_tool(params: &Value) -> Result<Value, (i64, String)> {
+    let name = params.get("name").and_then(Value::as_str).unwrap_or("");
+    let args = params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let run = match name {
+        "parse_document" => tool_parse_document(&args),
+        "get_chunks" => tool_get_chunks(&args),
+        "locate" => tool_locate(&args),
+        _ => return Err((-32602, format!("unknown tool: {name}"))),
+    };
+    Ok(match run {
+        Ok(text) => json!({ "content": [{ "type": "text", "text": text }], "isError": false }),
+        Err(e) => json!({
+            "content": [{ "type": "text", "text": format!("error: {e:#}") }],
+            "isError": true
+        }),
+    })
+}
+
+fn str_arg<'a>(args: &'a Value, key: &str) -> anyhow::Result<&'a str> {
+    args.get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("missing required argument: {key}"))
+}
+
+fn parse_path(path: &str) -> anyhow::Result<docparse_core::ir::Document> {
+    let path = std::path::Path::new(path);
+    let parser = crate::parsers()
+        .into_iter()
+        .find(|p| p.supports(path))
+        .ok_or_else(|| anyhow::anyhow!("no parser supports {}", path.display()))?;
+    parser.parse(path)
+}
+
+fn tool_parse_document(args: &Value) -> anyhow::Result<String> {
+    let doc = parse_path(str_arg(args, "path")?)?;
+    match args.get("format").and_then(Value::as_str).unwrap_or("json") {
+        "json" => output::to_json(&doc),
+        "markdown" => Ok(output::to_markdown(&doc)),
+        "text" => Ok(output::to_text(&doc)),
+        other => Err(anyhow::anyhow!(
+            "unknown format: {other} (json|markdown|text)"
+        )),
+    }
+}
+
+fn tool_get_chunks(args: &Value) -> anyhow::Result<String> {
+    let doc = parse_path(str_arg(args, "path")?)?;
+    let chunks = docparse_core::chunk::chunk_document(&doc);
+    let envelope = json!({
+        "provenance": serde_json::to_value(&doc.provenance)?,
+        "quality": serde_json::to_value(docparse_core::quality::analyze(&doc))?,
+        "chunks": serde_json::to_value(&chunks)?,
+    });
+    Ok(serde_json::to_string_pretty(&envelope)?)
+}
+
+fn tool_locate(args: &Value) -> anyhow::Result<String> {
+    let doc = parse_path(str_arg(args, "path")?)?;
+    let page = args
+        .get("page")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| anyhow::anyhow!("missing required argument: page"))? as usize;
+    let (x, y) = match (
+        args.get("x").and_then(Value::as_f64),
+        args.get("y").and_then(Value::as_f64),
+    ) {
+        (Some(x), Some(y)) => (x as f32, y as f32),
+        _ => anyhow::bail!("missing required argument: x and y"),
+    };
+    let chunks = docparse_core::chunk::chunk_document(&doc);
+    let hit = docparse_core::chunk::locate(&chunks, page, x, y);
+    Ok(serde_json::to_string_pretty(&serde_json::to_value(hit)?)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn req(method: &str, params: Value) -> String {
+        json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params }).to_string()
+    }
+
+    fn result_of(line: &str) -> Value {
+        let resp: Value = serde_json::from_str(&handle_line(line).expect("response")).unwrap();
+        assert!(resp.get("error").is_none(), "unexpected error: {resp}");
+        resp["result"].clone()
+    }
+
+    fn temp_html(name: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(name);
+        std::fs::write(
+            &path,
+            "<html><body><h1>Title</h1><p>Hello mcp world.</p></body></html>",
+        )
+        .unwrap();
+        path
+    }
+
+    #[test]
+    fn initialize_and_list() {
+        let r = result_of(&req("initialize", json!({"protocolVersion": "2025-03-26"})));
+        assert_eq!(r["serverInfo"]["name"], "docparse");
+        assert_eq!(r["protocolVersion"], "2025-03-26");
+        let tools = result_of(&req("tools/list", json!({})));
+        assert_eq!(tools["tools"].as_array().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn notifications_get_no_response() {
+        let note = json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }).to_string();
+        assert!(handle_line(&note).is_none());
+    }
+
+    #[test]
+    fn unknown_method_is_rpc_error() {
+        let resp: Value =
+            serde_json::from_str(&handle_line(&req("nope", json!({}))).unwrap()).unwrap();
+        assert_eq!(resp["error"]["code"], -32601);
+    }
+
+    #[test]
+    fn parse_document_roundtrip_is_deterministic() {
+        let path = temp_html("docparse-mcp-test.html");
+        let call = req(
+            "tools/call",
+            json!({ "name": "parse_document",
+                    "arguments": { "path": path, "format": "text" } }),
+        );
+        let r1 = result_of(&call);
+        let r2 = result_of(&call);
+        assert_eq!(r1, r2, "same request must yield byte-identical results");
+        assert_eq!(r1["isError"], false);
+        let text = r1["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("Hello mcp world."), "got: {text}");
+    }
+
+    #[test]
+    fn get_chunks_carries_provenance_and_bbox() {
+        let path = temp_html("docparse-mcp-chunks.html");
+        let r = result_of(&req(
+            "tools/call",
+            json!({ "name": "get_chunks", "arguments": { "path": path } }),
+        ));
+        assert_eq!(r["isError"], false);
+        let env: Value = serde_json::from_str(r["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert!(env["provenance"]["parser"].is_string());
+        let chunks = env["chunks"].as_array().unwrap();
+        assert!(!chunks.is_empty());
+        assert!(
+            chunks[0]["bbox"]["x0"].is_number(),
+            "chunks must be citable"
+        );
+    }
+
+    #[test]
+    fn bad_file_is_tool_error_not_crash() {
+        let r = result_of(&req(
+            "tools/call",
+            json!({ "name": "get_chunks",
+                    "arguments": { "path": "/nonexistent/x.html" } }),
+        ));
+        assert_eq!(r["isError"], true);
+        let unknown: Value =
+            serde_json::from_str(&handle_line(&req("tools/call", json!({"name": "zap"}))).unwrap())
+                .unwrap();
+        assert_eq!(unknown["error"]["code"], -32602);
+    }
+}

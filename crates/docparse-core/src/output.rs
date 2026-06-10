@@ -35,7 +35,10 @@ fn document_content(doc: &Document) -> Vec<PageContent<'_>> {
     layout::page_blocks(doc)
         .into_iter()
         .zip(&doc.pages)
-        .map(|(blocks, page)| PageContent { blocks, tables: page_tables(page) })
+        .map(|(blocks, page)| PageContent {
+            blocks,
+            tables: page_tables(page),
+        })
         .collect()
 }
 

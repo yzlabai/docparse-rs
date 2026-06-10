@@ -120,7 +120,10 @@ impl<'a> Line<'a> {
         Line { chunks: vec![c] }
     }
     fn base(&self) -> f32 {
-        self.chunks.iter().map(|c| base_of(c)).fold(f32::MAX, f32::min)
+        self.chunks
+            .iter()
+            .map(|c| base_of(c))
+            .fold(f32::MAX, f32::min)
     }
 }
 
@@ -134,28 +137,52 @@ struct Cluster<'a> {
 }
 impl<'a> Cluster<'a> {
     fn single(c: &'a TextChunk) -> Self {
-        Cluster { lines: vec![Line::new(c)], header: None, col: None, row: 0 }
+        Cluster {
+            lines: vec![Line::new(c)],
+            header: None,
+            col: None,
+            row: 0,
+        }
     }
     fn all(&self) -> Vec<&'a TextChunk> {
-        self.lines.iter().flat_map(|l| l.chunks.iter().copied()).collect()
+        self.lines
+            .iter()
+            .flat_map(|l| l.chunks.iter().copied())
+            .collect()
     }
     fn x0(&self) -> f32 {
-        self.all().iter().map(|c| c.bbox.x0).fold(f32::MAX, f32::min)
+        self.all()
+            .iter()
+            .map(|c| c.bbox.x0)
+            .fold(f32::MAX, f32::min)
     }
     fn x1(&self) -> f32 {
-        self.all().iter().map(|c| c.bbox.x1).fold(f32::MIN, f32::max)
+        self.all()
+            .iter()
+            .map(|c| c.bbox.x1)
+            .fold(f32::MIN, f32::max)
     }
     fn y0(&self) -> f32 {
-        self.all().iter().map(|c| c.bbox.y0).fold(f32::MAX, f32::min)
+        self.all()
+            .iter()
+            .map(|c| c.bbox.y0)
+            .fold(f32::MAX, f32::min)
     }
     fn y1(&self) -> f32 {
-        self.all().iter().map(|c| c.bbox.y1).fold(f32::MIN, f32::max)
+        self.all()
+            .iter()
+            .map(|c| c.bbox.y1)
+            .fold(f32::MIN, f32::max)
     }
     fn font(&self) -> f32 {
         self.all().iter().map(|c| c.font_size).fold(0.0, f32::max)
     }
     fn span(&self) -> XSpan {
-        XSpan { x0: self.x0(), x1: self.x1(), font: self.font() }
+        XSpan {
+            x0: self.x0(),
+            x1: self.x1(),
+            font: self.font(),
+        }
     }
     /// Lowest baseline (bottom line). veraPDF `getBaseLine`.
     fn base_line(&self) -> f32 {
@@ -304,7 +331,9 @@ impl<'a> RecognitionArea<'a> {
             let h = &self.headers[i];
             (h.base_line(), h.first_base_line(), h.x0(), h.x1())
         };
-        let delta = (h_base - base_of(c)).abs().min((h_first - base_of(c)).abs());
+        let delta = (h_base - base_of(c))
+            .abs()
+            .min((h_first - base_of(c)).abs());
         if delta < ONE_LINE_TOLERANCE * c.font_size {
             let last = self.headers[i].last_chunk();
             if line_merge_prob(last, c) > MERGE_PROB {
@@ -336,7 +365,11 @@ impl<'a> RecognitionArea<'a> {
         }
         let firsts: Vec<f32> = self.headers.iter().map(|h| h.first_base_line()).collect();
         let lasts: Vec<f32> = self.headers.iter().map(|h| h.base_line()).collect();
-        let centers: Vec<f32> = firsts.iter().zip(&lasts).map(|(a, b)| (a + b) / 2.0).collect();
+        let centers: Vec<f32> = firsts
+            .iter()
+            .zip(&lasts)
+            .map(|(a, b)| (a + b) / 2.0)
+            .collect();
         let avg = |v: &[f32]| v.iter().sum::<f32>() / v.len() as f32;
         let (af, al, ac) = (avg(&firsts), avg(&lasts), avg(&centers));
         let mut max_top = 0.0f32;
@@ -470,7 +503,11 @@ fn recognize(mut headers: Vec<Cluster>, mut clusters: Vec<Cluster>, page: usize)
         x1 = x1.max(c.x1());
         y1 = y1.max(c.y1());
     }
-    Some(Table { bbox: BBox { x0, y0, x1, y1 }, page, rows })
+    Some(Table {
+        bbox: BBox { x0, y0, x1, y1 },
+        page,
+        rows,
+    })
 }
 
 /// Pick the header column a body cell belongs to (veraPDF `mergeWeakClusters`
@@ -635,7 +672,10 @@ fn make_cell(chunks: &[&TextChunk]) -> Cell {
         x1 = 0.0;
         y1 = 0.0;
     }
-    Cell { text, bbox: BBox { x0, y0, x1, y1 } }
+    Cell {
+        text,
+        bbox: BBox { x0, y0, x1, y1 },
+    }
 }
 
 // ---- driver --------------------------------------------------------------
@@ -729,8 +769,9 @@ fn split_columns<'a>(chunks: &[&'a TextChunk]) -> Vec<Vec<&'a TextChunk>> {
     if best_x.is_nan() || best_depth > max_straddle {
         return vec![chunks.to_vec()];
     }
-    let (left, right): (Vec<&TextChunk>, Vec<&TextChunk>) =
-        chunks.iter().partition(|c| (c.bbox.x0 + c.bbox.x1) / 2.0 <= best_x);
+    let (left, right): (Vec<&TextChunk>, Vec<&TextChunk>) = chunks
+        .iter()
+        .partition(|c| (c.bbox.x0 + c.bbox.x1) / 2.0 <= best_x);
     if left.len() * 5 < n || right.len() * 5 < n {
         return vec![chunks.to_vec()];
     }
@@ -791,7 +832,12 @@ mod tests {
     fn chunk(text: &str, x0: f32, x1: f32, cy: f32) -> TextChunk {
         TextChunk {
             text: text.into(),
-            bbox: BBox { x0, y0: cy - 5.0, x1, y1: cy + 5.0 },
+            bbox: BBox {
+                x0,
+                y0: cy - 5.0,
+                x1,
+                y1: cy + 5.0,
+            },
             font_size: 10.0,
             font: None,
             page: 1,
@@ -804,13 +850,29 @@ mod tests {
     fn attraction_picks_overlapping_header() {
         // cell centered under the right header → assigned to column 1.
         let heads = vec![
-            XSpan { x0: 10.0, x1: 70.0, font: 10.0 },
-            XSpan { x0: 110.0, x1: 170.0, font: 10.0 },
+            XSpan {
+                x0: 10.0,
+                x1: 70.0,
+                font: 10.0,
+            },
+            XSpan {
+                x0: 110.0,
+                x1: 170.0,
+                font: 10.0,
+            },
         ];
-        let cell = XSpan { x0: 120.0, x1: 150.0, font: 10.0 };
+        let cell = XSpan {
+            x0: 120.0,
+            x1: 150.0,
+            font: 10.0,
+        };
         assert_eq!(attract_to_header(&heads, cell), 1);
         // a cell wider than its header still attaches (overlap beats distance).
-        let wide = XSpan { x0: 95.0, x1: 185.0, font: 10.0 };
+        let wide = XSpan {
+            x0: 95.0,
+            x1: 185.0,
+            font: 10.0,
+        };
         assert_eq!(attract_to_header(&heads, wide), 1);
     }
 
@@ -879,7 +941,12 @@ mod tests {
             chunk("0.85", 121.0, 149.0, 165.0),
         ];
         let refs: Vec<&TextChunk> = cs.iter().collect();
-        let excl = [BBox { x0: 0.0, y0: 140.0, x1: 200.0, y1: 210.0 }];
+        let excl = [BBox {
+            x0: 0.0,
+            y0: 140.0,
+            x1: 200.0,
+            y1: 210.0,
+        }];
         assert!(detect_cluster_tables(&refs, &excl, 1).is_empty());
     }
 }

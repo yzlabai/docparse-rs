@@ -17,9 +17,7 @@
 use crate::font::FontInfo;
 use crate::matrix::Matrix;
 use docparse_core::ir::{BBox, Element, Page, TextChunk};
-use docparse_core::table::{
-    detect_borderless_tables, detect_ruled_tables, detect_tables, Segment,
-};
+use docparse_core::table::{detect_borderless_tables, detect_ruled_tables, detect_tables, Segment};
 use docparse_core::table_cluster::detect_cluster_tables;
 use lopdf::content::Content;
 use lopdf::Object;
@@ -160,14 +158,28 @@ pub fn interpret(input: &PageInput) -> Page {
             }
             "Tj" => {
                 if let Some(Object::String(bytes, _)) = ops.first() {
-                    show_text(bytes, &mut ts, &ctm, &mut elements, input.number, &input.fonts);
+                    show_text(
+                        bytes,
+                        &mut ts,
+                        &ctm,
+                        &mut elements,
+                        input.number,
+                        &input.fonts,
+                    );
                 }
             }
             "'" => {
                 ts.tlm = Matrix::translate(0.0, -ts.leading).mul(&ts.tlm);
                 ts.tm = ts.tlm;
                 if let Some(Object::String(bytes, _)) = ops.first() {
-                    show_text(bytes, &mut ts, &ctm, &mut elements, input.number, &input.fonts);
+                    show_text(
+                        bytes,
+                        &mut ts,
+                        &ctm,
+                        &mut elements,
+                        input.number,
+                        &input.fonts,
+                    );
                 }
             }
             // ---- path construction (for table ruling lines) ----
@@ -228,9 +240,14 @@ pub fn interpret(input: &PageInput) -> Page {
                 if let Some(Object::Array(arr)) = ops.first() {
                     for el in arr {
                         match el {
-                            Object::String(bytes, _) => {
-                                show_text(bytes, &mut ts, &ctm, &mut elements, input.number, &input.fonts)
-                            }
+                            Object::String(bytes, _) => show_text(
+                                bytes,
+                                &mut ts,
+                                &ctm,
+                                &mut elements,
+                                input.number,
+                                &input.fonts,
+                            ),
                             _ => {
                                 if let Some(adj) = num(el) {
                                     // Negative adjustment moves the pen forward;
@@ -342,9 +359,15 @@ fn show_text(
 
     if !text.trim().is_empty() {
         let x0 = corners.iter().map(|c| c.0).fold(f64::INFINITY, f64::min) as f32;
-        let x1 = corners.iter().map(|c| c.0).fold(f64::NEG_INFINITY, f64::max) as f32;
+        let x1 = corners
+            .iter()
+            .map(|c| c.0)
+            .fold(f64::NEG_INFINITY, f64::max) as f32;
         let y0 = corners.iter().map(|c| c.1).fold(f64::INFINITY, f64::min) as f32;
-        let y1 = corners.iter().map(|c| c.1).fold(f64::NEG_INFINITY, f64::max) as f32;
+        let y1 = corners
+            .iter()
+            .map(|c| c.1)
+            .fold(f64::NEG_INFINITY, f64::max) as f32;
         out.push(Element::Text(TextChunk {
             text,
             bbox: BBox { x0, y0, x1, y1 },

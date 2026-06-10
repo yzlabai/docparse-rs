@@ -13,7 +13,10 @@ use std::sync::OnceLock;
 
 macro_rules! afm {
     ($name:literal) => {
-        ($name, include_str!(concat!("../resources/afm/", $name, ".afm")))
+        (
+            $name,
+            include_str!(concat!("../resources/afm/", $name, ".afm")),
+        )
     };
 }
 
@@ -70,7 +73,10 @@ fn tables() -> &'static HashMap<&'static str, HashMap<String, f64>> {
 /// bold/italic style detection. Returns `None` if it is not a standard font.
 fn canonical(base_font: &str) -> Option<&'static str> {
     // Strip subset prefix "ABCDEF+".
-    let name = base_font.split_once('+').map(|(_, n)| n).unwrap_or(base_font);
+    let name = base_font
+        .split_once('+')
+        .map(|(_, n)| n)
+        .unwrap_or(base_font);
     let lower = name.to_ascii_lowercase();
 
     let bold = lower.contains("bold");
@@ -90,7 +96,8 @@ fn canonical(base_font: &str) -> Option<&'static str> {
         Family::Courier
     } else if lower.contains("times") || lower.contains("nimbusrom") {
         Family::Times
-    } else if lower.contains("helvetica") || lower.contains("arial") || lower.contains("nimbussan") {
+    } else if lower.contains("helvetica") || lower.contains("arial") || lower.contains("nimbussan")
+    {
         Family::Helvetica
     } else {
         return None;
@@ -148,7 +155,10 @@ mod tests {
 
     #[test]
     fn style_detection() {
-        assert_eq!(canonical("Arial-BoldItalicMT"), Some("Helvetica-BoldOblique"));
+        assert_eq!(
+            canonical("Arial-BoldItalicMT"),
+            Some("Helvetica-BoldOblique")
+        );
         assert_eq!(canonical("CourierNewPS-BoldMT"), Some("Courier-Bold"));
     }
 

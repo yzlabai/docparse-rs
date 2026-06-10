@@ -48,10 +48,10 @@ MCP stdio 协议很小（`initialize`、`tools/list`、`tools/call` 三个方法
 
 ## 4. 验收（记分牌即验收门）
 
-- [ ] Claude Code 经 `docparse mcp` 直连：给一份 PDF 路径 → 拿到带 bbox 的 chunks → `locate` 反查坐标命中正确 chunk（端到端演示记入 testresults）。
-- [ ] MCP 三 tool 各有单测（请求→响应 JSON 逐字节确定）；坏文件/坏参数不 panic、返回结构化 error。
+- [x] MCP 直连端到端：PDF 路径 → 带 bbox 的 chunks（provenance+quality 信封）→ `locate` 反查 bbox 中心命中同一 chunk。记录：[testresults/2026-06-10-n2a-mcp-server.md](../testresults/2026-06-10-n2a-mcp-server.md)。
+- [x] MCP 三 tool 单测（含同请求逐字节确定）；坏文件/坏参数不 panic、返回结构化 error（isError/-32601/-32602），server 存活。
 - [ ] REST：`curl` multipart 上传 → 与 CLI 同输出逐字节一致（确定性跨接口保持）。
-- [ ] 二进制体积仍 < 20MB；`cargo clippy` 零 warning；现有 54 测试零回归。
+- [x] 二进制体积 5.39MB < 20MB;clippy 零 warning;60 测试全绿(原 54 零回归 + mcp 6)。
 
 ## 5. 风险与边界
 

@@ -69,7 +69,12 @@ pub fn plan(doc: &Document, enhancers: &[&dyn Enhancer]) -> Vec<PageRoute> {
                 .iter()
                 .find(|c| a.flags.iter().any(|&f| c.covers(f)))
                 .map(|c| c.name.clone());
-            PageRoute { page: a.page, flags: a.flags, enhancer, applied: false }
+            PageRoute {
+                page: a.page,
+                flags: a.flags,
+                enhancer,
+                applied: false,
+            }
         })
         .collect()
 }
@@ -133,12 +138,17 @@ mod tests {
         fn enhance_page(&self, page: &Page) -> Option<Vec<Element>> {
             Some(vec![Element::Text(TextChunk {
                 text: "[ocr] recovered text".into(),
-                bbox: BBox { x0: 0.0, y0: 0.0, x1: page.width, y1: 20.0 },
+                bbox: BBox {
+                    x0: 0.0,
+                    y0: 0.0,
+                    x1: page.width,
+                    y1: 20.0,
+                },
                 font_size: 10.0,
                 font: None,
                 page: page.number,
                 confidence: 0.5,
-            bold: false,
+                bold: false,
             })])
         }
     }
@@ -147,20 +157,34 @@ mod tests {
         let elements = match text {
             Some(t) => vec![Element::Text(TextChunk {
                 text: t.into(),
-                bbox: BBox { x0: 0.0, y0: 0.0, x1: 10.0, y1: 10.0 },
+                bbox: BBox {
+                    x0: 0.0,
+                    y0: 0.0,
+                    x1: 10.0,
+                    y1: 10.0,
+                },
                 font_size: 10.0,
                 font: None,
                 page: number,
                 confidence: 1.0,
-            bold: false,
+                bold: false,
             })],
             None => vec![],
         };
-        Page { number, width: 612.0, height: 792.0, elements }
+        Page {
+            number,
+            width: 612.0,
+            height: 792.0,
+            elements,
+        }
     }
 
     fn doc(pages: Vec<Page>) -> Document {
-        Document { source: "t".into(), provenance: None, pages }
+        Document {
+            source: "t".into(),
+            provenance: None,
+            pages,
+        }
     }
 
     #[test]
@@ -202,7 +226,10 @@ mod tests {
     fn no_enhancers_means_no_changes() {
         let d = doc(vec![page(1, None)]);
         let (out, report) = apply(&d, &[]);
-        assert!(out.pages[0].elements.is_empty(), "main flow independent of enhancers");
+        assert!(
+            out.pages[0].elements.is_empty(),
+            "main flow independent of enhancers"
+        );
         assert_eq!(report.len(), 1);
         assert_eq!(report[0].enhancer, None);
         assert!(!report[0].applied);

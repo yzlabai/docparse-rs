@@ -23,7 +23,10 @@ impl DocumentParser for HtmlParser {
 
     fn supports(&self, path: &Path) -> bool {
         matches!(
-            path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref(),
+            path.extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_ascii_lowercase())
+                .as_deref(),
             Some("html") | Some("htm") | Some("xhtml")
         )
     }
@@ -107,7 +110,9 @@ fn collapse_ws(s: &str) -> String {
 fn parse_table(table: NodeRef<Node>) -> Vec<Vec<String>> {
     let mut rows = Vec::new();
     for d in table.descendants() {
-        let Node::Element(el) = d.value() else { continue };
+        let Node::Element(el) = d.value() else {
+            continue;
+        };
         if el.name() != "tr" {
             continue;
         }

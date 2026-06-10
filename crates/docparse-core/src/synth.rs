@@ -80,7 +80,12 @@ impl PageBuilder {
         let x1 = self.margin + self.text_width(&text, size);
         self.cur.push(Element::Text(TextChunk {
             text,
-            bbox: BBox { x0: self.margin, y0, x1, y1 },
+            bbox: BBox {
+                x0: self.margin,
+                y0,
+                x1,
+                y1,
+            },
             font_size: size,
             font: None,
             page: self.page_no,
@@ -112,14 +117,24 @@ impl PageBuilder {
                 let text = row.get(c).cloned().unwrap_or_default();
                 cells.push(Cell {
                     text,
-                    bbox: BBox { x0, y0: y_bot, x1: x0 + col_w, y1: y_top },
+                    bbox: BBox {
+                        x0,
+                        y0: y_bot,
+                        x1: x0 + col_w,
+                        y1: y_top,
+                    },
                 });
             }
             out_rows.push(cells);
         }
         let bottom = top - total;
         self.cur.push(Element::Table(Table {
-            bbox: BBox { x0: self.margin, y0: bottom, x1: self.width - self.margin, y1: top },
+            bbox: BBox {
+                x0: self.margin,
+                y0: bottom,
+                x1: self.width - self.margin,
+                y1: top,
+            },
             page: self.page_no,
             rows: out_rows,
         }));
@@ -157,7 +172,10 @@ mod tests {
     fn table_becomes_table_element() {
         let mut b = PageBuilder::letter();
         b.paragraph("Title", 20.0);
-        b.table(vec![vec!["a".into(), "b".into()], vec!["c".into(), "d".into()]], 12.0);
+        b.table(
+            vec![vec!["a".into(), "b".into()], vec!["c".into(), "d".into()]],
+            12.0,
+        );
         let pages = b.finish();
         let tables: Vec<_> = pages
             .iter()

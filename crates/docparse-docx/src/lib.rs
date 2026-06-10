@@ -80,12 +80,20 @@ fn paragraph_text(p: &Paragraph) -> String {
 
 /// Font size from the paragraph style name ("Heading1" …, "Title").
 fn paragraph_size(p: &Paragraph) -> f32 {
-    let style = p.property.style.as_ref().map(|s| s.val.as_str()).unwrap_or("");
+    let style = p
+        .property
+        .style
+        .as_ref()
+        .map(|s| s.val.as_str())
+        .unwrap_or("");
     let lower = style.to_ascii_lowercase();
     if lower == "title" {
         return 26.0;
     }
-    match lower.strip_prefix("heading").and_then(|n| n.trim().parse::<u32>().ok()) {
+    match lower
+        .strip_prefix("heading")
+        .and_then(|n| n.trim().parse::<u32>().ok())
+    {
         Some(1) => 24.0,
         Some(2) => 20.0,
         Some(3) => 17.0,

@@ -92,7 +92,11 @@ impl CMap {
                 break;
             }
             let slice = &data[pos..pos + len];
-            if self.codespaces.iter().any(|c| c.len() == len && c.contains(slice)) {
+            if self
+                .codespaces
+                .iter()
+                .any(|c| c.len() == len && c.contains(slice))
+            {
                 return (number_be(slice), len);
             }
         }
@@ -277,7 +281,9 @@ fn tokenize(data: &[u8]) -> Vec<Tok> {
                     i += 1;
                 }
                 if i > start {
-                    toks.push(Tok::Word(String::from_utf8_lossy(&data[start..i]).into_owned()));
+                    toks.push(Tok::Word(
+                        String::from_utf8_lossy(&data[start..i]).into_owned(),
+                    ));
                 } else {
                     i += 1;
                 }
@@ -317,7 +323,13 @@ fn utf16be_to_string(bytes: &[u8]) -> String {
     }
     let units: Vec<u16> = bytes
         .chunks(2)
-        .map(|c| if c.len() == 2 { ((c[0] as u16) << 8) | c[1] as u16 } else { c[0] as u16 })
+        .map(|c| {
+            if c.len() == 2 {
+                ((c[0] as u16) << 8) | c[1] as u16
+            } else {
+                c[0] as u16
+            }
+        })
         .collect();
     String::from_utf16_lossy(&units)
 }

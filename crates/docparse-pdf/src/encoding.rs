@@ -113,10 +113,7 @@ pub fn glyph_to_unicode(name: &str) -> Option<String> {
 /// with `/Differences`. `base` is the chosen 256-entry predefined table;
 /// `differences` is the raw `/Differences` array entries (code resets as
 /// integers, glyph names as names) already extracted from the font dict.
-pub fn build_encoding(
-    base: &[&'static str; 256],
-    differences: &[Diff],
-) -> Vec<Option<String>> {
+pub fn build_encoding(base: &[&'static str; 256], differences: &[Diff]) -> Vec<Option<String>> {
     let mut out: Vec<Option<String>> = base
         .iter()
         .map(|n| (!n.is_empty()).then(|| n.to_string()))
@@ -176,7 +173,11 @@ mod tests {
     fn differences_override_base() {
         let enc = build_encoding(
             &STANDARD,
-            &[Diff::Code(65), Diff::Name("fi".into()), Diff::Name("fl".into())],
+            &[
+                Diff::Code(65),
+                Diff::Name("fi".into()),
+                Diff::Name("fl".into()),
+            ],
         );
         // 65/66 overridden, 67 still Standard 'C'.
         assert_eq!(enc[65].as_deref(), Some("fi"));

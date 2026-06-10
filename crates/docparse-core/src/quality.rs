@@ -139,7 +139,11 @@ pub fn assess_page(page: &Page) -> PageAssessment {
             }
         }
     }
-    let garbled_ratio = if chars == 0 { 0.0 } else { garbled as f32 / chars as f32 };
+    let garbled_ratio = if chars == 0 {
+        0.0
+    } else {
+        garbled as f32 / chars as f32
+    };
     let mut flags = Vec::new();
     if !has_text {
         flags.push(QualityFlag::ScannedNoText);
@@ -172,19 +176,33 @@ mod tests {
         } else {
             vec![Element::Text(TextChunk {
                 text: text.to_string(),
-                bbox: BBox { x0: 0.0, y0: 0.0, x1: 1.0, y1: 1.0 },
+                bbox: BBox {
+                    x0: 0.0,
+                    y0: 0.0,
+                    x1: 1.0,
+                    y1: 1.0,
+                },
                 font_size: 10.0,
                 font: None,
                 page: number,
                 confidence: 1.0,
-            bold: false,
+                bold: false,
             })]
         };
-        Page { number, width: 100.0, height: 100.0, elements }
+        Page {
+            number,
+            width: 100.0,
+            height: 100.0,
+            elements,
+        }
     }
 
     fn doc(pages: Vec<Page>) -> Document {
-        Document { source: "t".into(), provenance: None, pages }
+        Document {
+            source: "t".into(),
+            provenance: None,
+            pages,
+        }
     }
 
     #[test]
@@ -196,7 +214,10 @@ mod tests {
 
     #[test]
     fn clean_digital_doc_has_no_flags() {
-        let r = analyze(&doc(vec![page_with(1, "Hello world"), page_with(2, "More text")]));
+        let r = analyze(&doc(vec![
+            page_with(1, "Hello world"),
+            page_with(2, "More text"),
+        ]));
         assert_eq!(r.coverage, 1.0);
         assert_eq!(r.garbled_ratio, 0.0);
         assert!(r.flags.is_empty());

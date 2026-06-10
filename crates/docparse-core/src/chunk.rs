@@ -109,16 +109,17 @@ pub fn chunk_document_with(doc: &Document, opts: ChunkOptions) -> Vec<Chunk> {
         let mut items: Vec<Item> = blocks.iter().map(Item::Block).collect();
         let mut tables_by_y = tables.clone();
         tables_by_y.sort_by(|a, b| {
-            a.bbox.y1.partial_cmp(&b.bbox.y1).unwrap_or(std::cmp::Ordering::Equal)
+            a.bbox
+                .y1
+                .partial_cmp(&b.bbox.y1)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
         for t in tables_by_y {
             let pos = items
                 .iter()
                 .position(|it| match it {
                     Item::Block(b) => {
-                        b.bbox.x0 < t.bbox.x1
-                            && t.bbox.x0 < b.bbox.x1
-                            && b.bbox.y1 < t.bbox.y1
+                        b.bbox.x0 < t.bbox.x1 && t.bbox.x0 < b.bbox.x1 && b.bbox.y1 < t.bbox.y1
                     }
                     Item::Table(prev) => prev.bbox.y1 < t.bbox.y1,
                 })
@@ -223,7 +224,12 @@ fn union(a: BBox, b: BBox) -> BBox {
 fn table_text(t: &Table) -> String {
     t.rows
         .iter()
-        .map(|row| row.iter().map(|c| c.text.trim()).collect::<Vec<_>>().join("\t"))
+        .map(|row| {
+            row.iter()
+                .map(|c| c.text.trim())
+                .collect::<Vec<_>>()
+                .join("\t")
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -244,7 +250,12 @@ mod tests {
     fn text_el(t: &str, size: f32, y: f32, page: usize) -> Element {
         Element::Text(TextChunk {
             text: t.into(),
-            bbox: BBox { x0: 72.0, y0: y - size, x1: 520.0, y1: y },
+            bbox: BBox {
+                x0: 72.0,
+                y0: y - size,
+                x1: 520.0,
+                y1: y,
+            },
             font_size: size,
             font: None,
             page,
@@ -257,7 +268,12 @@ mod tests {
         Document {
             source: "t".into(),
             provenance: None,
-            pages: vec![Page { number: 1, width: 612.0, height: 792.0, elements }],
+            pages: vec![Page {
+                number: 1,
+                width: 612.0,
+                height: 792.0,
+                elements,
+            }],
         }
     }
 
@@ -268,7 +284,10 @@ mod tests {
             text_el("Some body paragraph text here.", 10.0, 660.0, 1),
         ]);
         let chunks = chunk_document(&d);
-        let para = chunks.iter().find(|c| c.kind == ChunkKind::Paragraph).unwrap();
+        let para = chunks
+            .iter()
+            .find(|c| c.kind == ChunkKind::Paragraph)
+            .unwrap();
         assert_eq!(para.heading_path, vec!["Big Heading".to_string()]);
         assert_eq!(para.page, 1);
     }
@@ -276,11 +295,32 @@ mod tests {
     #[test]
     fn table_becomes_table_chunk_and_is_citable() {
         let table = Element::Table(Table {
-            bbox: BBox { x0: 72.0, y0: 400.0, x1: 540.0, y1: 500.0 },
+            bbox: BBox {
+                x0: 72.0,
+                y0: 400.0,
+                x1: 540.0,
+                y1: 500.0,
+            },
             page: 1,
             rows: vec![vec![
-                Cell { text: "A".into(), bbox: BBox { x0: 72.0, y0: 450.0, x1: 300.0, y1: 500.0 } },
-                Cell { text: "B".into(), bbox: BBox { x0: 300.0, y0: 450.0, x1: 540.0, y1: 500.0 } },
+                Cell {
+                    text: "A".into(),
+                    bbox: BBox {
+                        x0: 72.0,
+                        y0: 450.0,
+                        x1: 300.0,
+                        y1: 500.0,
+                    },
+                },
+                Cell {
+                    text: "B".into(),
+                    bbox: BBox {
+                        x0: 300.0,
+                        y0: 450.0,
+                        x1: 540.0,
+                        y1: 500.0,
+                    },
+                },
             ]],
         });
         let chunks = chunk_document(&doc(vec![table]));

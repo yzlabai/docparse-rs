@@ -1,6 +1,8 @@
 //! `docparse` — parse a document into JSON / Markdown / text.
 
-use clap::{Parser, ValueEnum};
+mod mcp;
+
+use clap::{Parser, Subcommand, ValueEnum};
 use docparse_core::output;
 use docparse_core::parser::DocumentParser;
 use docparse_docx::DocxParser;
@@ -8,11 +10,29 @@ use docparse_html::HtmlParser;
 use docparse_pdf::PdfParser;
 use std::path::PathBuf;
 
+/// Parser registry — one line per format backend. Shared by the CLI path and
+/// the MCP server.
+pub(crate) fn parsers() -> Vec<Box<dyn DocumentParser>> {
+    vec![
+        Box::new(PdfParser),
+        Box::new(DocxParser),
+        Box::new(HtmlParser),
+    ]
+}
+
 #[derive(Parser)]
-#[command(name = "docparse", version, about = "Efficient multi-format document parser (Rust)")]
+#[command(
+    name = "docparse",
+    version,
+    about = "Efficient multi-format document parser (Rust)"
+)]
+#[command(args_conflicts_with_subcommands = true)]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+
     /// Input document (PDF, DOCX, or HTML).
-    input: PathBuf,
+    input: Option<PathBuf>,
 
     /// Output format.
     #[arg(short, long, value_enum, default_value_t = Format::Json)]
@@ -32,6 +52,13 @@ struct Cli {
     route_plan: bool,
 }
 
+#[derive(Subcommand)]
+enum Command {
+    /// Serve the parser over MCP (newline-delimited JSON-RPC on stdio) so
+    /// agents can call parse/chunk/locate directly.
+    Mcp,
+}
+
 #[derive(Clone, ValueEnum)]
 enum Format {
     Json,
@@ -44,15 +71,19 @@ enum Format {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    // Parser registry — one line per format backend.
-    let parsers: Vec<Box<dyn DocumentParser>> =
-        vec![Box::new(PdfParser), Box::new(DocxParser), Box::new(HtmlParser)];
-    let parser = parsers
-        .into_iter()
-        .find(|p| p.supports(&cli.input))
-        .ok_or_else(|| anyhow::anyhow!("no parser supports {}", cli.input.display()))?;
+    if let Some(Command::Mcp) = cli.command {
+        return mcp::serve();
+    }
+    let input = cli
+        .input
+        .ok_or_else(|| anyhow::anyhow!("missing input file (see --help)"))?;
 
-    let doc = parser.parse(&cli.input)?;
+    let parser = parsers()
+        .into_iter()
+        .find(|p| p.supports(&input))
+        .ok_or_else(|| anyhow::anyhow!("no parser supports {}", input.display()))?;
+
+    let doc = parser.parse(&input)?;
 
     if cli.quality {
         eprintln!("{}", docparse_core::quality::analyze(&doc).to_json());
@@ -73,7 +104,9 @@ fn main() -> anyhow::Result<()> {
         Format::Json => output::to_json(&doc)?,
         Format::Markdown => output::to_markdown(&doc),
         Format::Text => output::to_text(&doc),
-        Format::Chunks => docparse_core::chunk::to_json(&docparse_core::chunk::chunk_document(&doc)),
+        Format::Chunks => {
+            docparse_core::chunk::to_json(&docparse_core::chunk::chunk_document(&doc))
+        }
     };
 
     match cli.out {

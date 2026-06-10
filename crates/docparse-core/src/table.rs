@@ -70,12 +70,20 @@ pub fn detect_tables(chunks: &[&TextChunk], segments: &[Segment], page: usize) -
     let hlines: Vec<HLine> = segments
         .iter()
         .filter(|s| s.is_h())
-        .map(|s| HLine { y: (s.y0 + s.y1) / 2.0, x_lo: s.x0.min(s.x1), x_hi: s.x0.max(s.x1) })
+        .map(|s| HLine {
+            y: (s.y0 + s.y1) / 2.0,
+            x_lo: s.x0.min(s.x1),
+            x_hi: s.x0.max(s.x1),
+        })
         .collect();
     let vlines: Vec<VLine> = segments
         .iter()
         .filter(|s| s.is_v())
-        .map(|s| VLine { x: (s.x0 + s.x1) / 2.0, y_lo: s.y0.min(s.y1), y_hi: s.y0.max(s.y1) })
+        .map(|s| VLine {
+            x: (s.x0 + s.x1) / 2.0,
+            y_lo: s.y0.min(s.y1),
+            y_hi: s.y0.max(s.y1),
+        })
         .collect();
 
     let row_ys = cluster(hlines.iter().map(|h| h.y).collect());
@@ -99,14 +107,14 @@ pub fn detect_tables(chunks: &[&TextChunk], segments: &[Segment], page: usize) -
     // Outer rectangle must exist: top & bottom rules spanning ≥80% width, and
     // left & right rules spanning ≥80% height. Rejects scattered figure rules.
     let spans_w = |y: f32| {
-        hlines.iter().any(|h| {
-            (h.y - y).abs() <= SNAP && (h.x_hi - h.x_lo) >= width * 0.8
-        })
+        hlines
+            .iter()
+            .any(|h| (h.y - y).abs() <= SNAP && (h.x_hi - h.x_lo) >= width * 0.8)
     };
     let spans_h = |x: f32| {
-        vlines.iter().any(|v| {
-            (v.x - x).abs() <= SNAP && (v.y_hi - v.y_lo) >= height * 0.8
-        })
+        vlines
+            .iter()
+            .any(|v| (v.x - x).abs() <= SNAP && (v.y_hi - v.y_lo) >= height * 0.8)
     };
     if !(spans_w(top) && spans_w(bottom) && spans_h(left) && spans_h(right)) {
         return Vec::new();
@@ -147,14 +155,24 @@ pub fn detect_tables(chunks: &[&TextChunk], segments: &[Segment], page: usize) -
                 .join(" ");
             row.push(Cell {
                 text,
-                bbox: BBox { x0: x_left, y0: y_bot, x1: x_right, y1: y_top },
+                bbox: BBox {
+                    x0: x_left,
+                    y0: y_bot,
+                    x1: x_right,
+                    y1: y_top,
+                },
             });
         }
         rows.push(row);
     }
 
     vec![Table {
-        bbox: BBox { x0: left, y0: bottom, x1: right, y1: top },
+        bbox: BBox {
+            x0: left,
+            y0: bottom,
+            x1: right,
+            y1: top,
+        },
         page,
         rows,
     }]
@@ -232,7 +250,11 @@ fn build_rows<'a>(chunks: &[&'a TextChunk]) -> Vec<Row<'a>> {
                         s.x1 = s.x1.max(c.bbox.x1);
                         s.chunks.push(c);
                     }
-                    _ => segs.push(Seg { x0: c.bbox.x0, x1: c.bbox.x1, chunks: vec![c] }),
+                    _ => segs.push(Seg {
+                        x0: c.bbox.x0,
+                        x1: c.bbox.x1,
+                        chunks: vec![c],
+                    }),
                 }
             }
             Row { cy, size, segs }
@@ -328,7 +350,10 @@ fn build_borderless(rows: &[Row], region: &[usize], cols: &[f32]) -> Option<Tabl
             // nearest column
             let ci = (0..ncols)
                 .min_by(|&a, &b| {
-                    (xs[a] - s.x0).abs().partial_cmp(&(xs[b] - s.x0).abs()).unwrap()
+                    (xs[a] - s.x0)
+                        .abs()
+                        .partial_cmp(&(xs[b] - s.x0).abs())
+                        .unwrap()
                 })
                 .unwrap_or(0);
             cells[ci].extend(&s.chunks);
@@ -347,8 +372,20 @@ fn build_borderless(rows: &[Row], region: &[usize], cols: &[f32]) -> Option<Tabl
                 .collect::<Vec<_>>()
                 .join(" ");
             let x0 = xs[ci];
-            let x1 = if ci + 1 < ncols { xs[ci + 1] } else { x_max.max(x0 + 1.0) };
-            cell_row.push(Cell { text, bbox: BBox { x0, y0: row.cy - half, x1, y1: row.cy + half } });
+            let x1 = if ci + 1 < ncols {
+                xs[ci + 1]
+            } else {
+                x_max.max(x0 + 1.0)
+            };
+            cell_row.push(Cell {
+                text,
+                bbox: BBox {
+                    x0,
+                    y0: row.cy - half,
+                    x1,
+                    y1: row.cy + half,
+                },
+            });
         }
         out_rows.push(cell_row);
     }
@@ -388,7 +425,12 @@ fn build_borderless(rows: &[Row], region: &[usize], cols: &[f32]) -> Option<Tabl
     }
 
     Some(Table {
-        bbox: BBox { x0: x_min, y0: y_bot, x1: x_max, y1: y_top },
+        bbox: BBox {
+            x0: x_min,
+            y0: y_bot,
+            x1: x_max,
+            y1: y_top,
+        },
         page: rows[region[0]].segs[0].chunks[0].page,
         rows: out_rows,
     })
@@ -441,7 +483,12 @@ pub fn detect_ruled_tables(
         let bottom = g.iter().map(|r| r.0).fold(f32::MAX, f32::min);
         let left = g.iter().map(|r| r.1).fold(f32::MAX, f32::min);
         let right = g.iter().map(|r| r.2).fold(f32::MIN, f32::max);
-        let region = BBox { x0: left, y0: bottom, x1: right, y1: top };
+        let region = BBox {
+            x0: left,
+            y0: bottom,
+            x1: right,
+            y1: top,
+        };
         if exclude.iter().any(|b| overlaps(&region, b)) {
             continue;
         }
@@ -458,7 +505,10 @@ pub fn detect_ruled_tables(
         if inside.len() < 4 {
             continue;
         }
-        let rows: Vec<Row> = build_rows(&inside).into_iter().filter(|r| !r.segs.is_empty()).collect();
+        let rows: Vec<Row> = build_rows(&inside)
+            .into_iter()
+            .filter(|r| !r.segs.is_empty())
+            .collect();
         if rows.len() < 2 {
             continue;
         }
@@ -475,7 +525,10 @@ pub fn detect_ruled_tables(
 /// keep clusters present in at least half the rows (filters spurious columns
 /// from the occasional multi-value cell).
 fn stable_columns(rows: &[Row]) -> Vec<f32> {
-    let mut xs: Vec<f32> = rows.iter().flat_map(|r| r.segs.iter().map(|s| s.x0)).collect();
+    let mut xs: Vec<f32> = rows
+        .iter()
+        .flat_map(|r| r.segs.iter().map(|s| s.x0))
+        .collect();
     xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     // Cluster, tracking how many distinct rows contribute (approx via count).
     let mut clusters: Vec<(f32, usize)> = Vec::new(); // (mean, count)
@@ -489,7 +542,11 @@ fn stable_columns(rows: &[Row]) -> Vec<f32> {
         }
     }
     let min_support = rows.len().div_ceil(2).max(2);
-    clusters.into_iter().filter(|(_, n)| *n >= min_support).map(|(m, _)| m).collect()
+    clusters
+        .into_iter()
+        .filter(|(_, n)| *n >= min_support)
+        .map(|(m, _)| m)
+        .collect()
 }
 
 /// Assign each row's cells to the nearest column and build the table.
@@ -502,7 +559,10 @@ fn build_grid(rows: &[Row], cols: &[f32], region: BBox, page: usize) -> Table {
         for s in &row.segs {
             let ci = (0..ncols)
                 .min_by(|&a, &b| {
-                    (cols[a] - s.x0).abs().partial_cmp(&(cols[b] - s.x0).abs()).unwrap()
+                    (cols[a] - s.x0)
+                        .abs()
+                        .partial_cmp(&(cols[b] - s.x0).abs())
+                        .unwrap()
                 })
                 .unwrap_or(0);
             cells[ci].extend(&s.chunks);
@@ -518,13 +578,29 @@ fn build_grid(rows: &[Row], cols: &[f32], region: BBox, page: usize) -> Table {
                     .collect::<Vec<_>>()
                     .join(" ");
                 let x0 = cols[ci];
-                let x1 = if ci + 1 < ncols { cols[ci + 1] } else { region.x1 };
-                Cell { text, bbox: BBox { x0, y0: row.cy - half, x1, y1: row.cy + half } }
+                let x1 = if ci + 1 < ncols {
+                    cols[ci + 1]
+                } else {
+                    region.x1
+                };
+                Cell {
+                    text,
+                    bbox: BBox {
+                        x0,
+                        y0: row.cy - half,
+                        x1,
+                        y1: row.cy + half,
+                    },
+                }
             })
             .collect();
         out_rows.push(cell_row);
     }
-    Table { bbox: region, page, rows: out_rows }
+    Table {
+        bbox: region,
+        page,
+        rows: out_rows,
+    }
 }
 
 fn overlaps(a: &BBox, b: &BBox) -> bool {
@@ -537,10 +613,20 @@ mod tests {
     use crate::ir::BBox;
 
     fn h(y: f32, x0: f32, x1: f32) -> Segment {
-        Segment { x0, y0: y, x1, y1: y }
+        Segment {
+            x0,
+            y0: y,
+            x1,
+            y1: y,
+        }
     }
     fn v(x: f32, y0: f32, y1: f32) -> Segment {
-        Segment { x0: x, y0, x1: x, y1 }
+        Segment {
+            x0: x,
+            y0,
+            x1: x,
+            y1,
+        }
     }
     fn chunk(text: &str, x0: f32, y0: f32, x1: f32, y1: f32) -> TextChunk {
         TextChunk {
@@ -558,11 +644,15 @@ mod tests {
     fn detects_2x2_grid_and_assigns_text() {
         // 3 horizontal rules (y=0,10,20) and 3 vertical (x=0,10,20) → 2×2.
         let segs = vec![
-            h(0.0, 0.0, 20.0), h(10.0, 0.0, 20.0), h(20.0, 0.0, 20.0),
-            v(0.0, 0.0, 20.0), v(10.0, 0.0, 20.0), v(20.0, 0.0, 20.0),
+            h(0.0, 0.0, 20.0),
+            h(10.0, 0.0, 20.0),
+            h(20.0, 0.0, 20.0),
+            v(0.0, 0.0, 20.0),
+            v(10.0, 0.0, 20.0),
+            v(20.0, 0.0, 20.0),
         ];
         let cs = [
-            chunk("A", 1.0, 11.0, 4.0, 18.0),  // top-left
+            chunk("A", 1.0, 11.0, 4.0, 18.0),   // top-left
             chunk("B", 11.0, 11.0, 14.0, 18.0), // top-right
             chunk("C", 1.0, 1.0, 4.0, 8.0),     // bottom-left
             chunk("D", 11.0, 1.0, 14.0, 8.0),   // bottom-right
@@ -590,8 +680,12 @@ mod tests {
     fn open_grid_without_outer_box_rejected() {
         // 3×3 short rules that don't span the full width/height → no outer box.
         let segs = vec![
-            h(0.0, 0.0, 5.0), h(10.0, 0.0, 5.0), h(20.0, 0.0, 5.0),
-            v(0.0, 0.0, 5.0), v(10.0, 0.0, 5.0), v(20.0, 0.0, 5.0),
+            h(0.0, 0.0, 5.0),
+            h(10.0, 0.0, 5.0),
+            h(20.0, 0.0, 5.0),
+            v(0.0, 0.0, 5.0),
+            v(10.0, 0.0, 5.0),
+            v(20.0, 0.0, 5.0),
         ];
         assert!(detect_tables(&[], &segs, 1).is_empty());
     }
@@ -605,9 +699,12 @@ mod tests {
     fn borderless_aligned_grid_detected() {
         // 3 rows × 2 columns aligned at x0=10 and x0=60 (gap 30 > 1.5em).
         let cs: Vec<TextChunk> = vec![
-            cc("a1", 10.0, 30.0, 100.0), cc("b1", 60.0, 80.0, 100.0),
-            cc("a2", 10.0, 30.0, 88.0), cc("b2", 60.0, 80.0, 88.0),
-            cc("a3", 10.0, 30.0, 76.0), cc("b3", 60.0, 80.0, 76.0),
+            cc("a1", 10.0, 30.0, 100.0),
+            cc("b1", 60.0, 80.0, 100.0),
+            cc("a2", 10.0, 30.0, 88.0),
+            cc("b2", 60.0, 80.0, 88.0),
+            cc("a3", 10.0, 30.0, 76.0),
+            cc("b3", 60.0, 80.0, 76.0),
         ];
         let refs: Vec<&TextChunk> = cs.iter().collect();
         let tables = detect_borderless_tables(&refs, &[]);
@@ -635,8 +732,10 @@ mod tests {
         // Two wide horizontal rules bound a 2-col × 2-row table.
         let segs = vec![h(100.0, 0.0, 200.0), h(60.0, 0.0, 200.0)];
         let cs: Vec<TextChunk> = vec![
-            cc("a1", 10.0, 30.0, 90.0), cc("b1", 110.0, 130.0, 90.0),
-            cc("a2", 10.0, 30.0, 75.0), cc("b2", 110.0, 130.0, 75.0),
+            cc("a1", 10.0, 30.0, 90.0),
+            cc("b1", 110.0, 130.0, 90.0),
+            cc("a2", 10.0, 30.0, 75.0),
+            cc("b2", 110.0, 130.0, 75.0),
         ];
         let refs: Vec<&TextChunk> = cs.iter().collect();
         let tables = detect_ruled_tables(&refs, &segs, &[], 1);
@@ -658,12 +757,23 @@ mod tests {
     #[test]
     fn borderless_skips_excluded_bordered_region() {
         let cs: Vec<TextChunk> = vec![
-            cc("a1", 10.0, 30.0, 100.0), cc("b1", 60.0, 80.0, 100.0),
-            cc("a2", 10.0, 30.0, 88.0), cc("b2", 60.0, 80.0, 88.0),
-            cc("a3", 10.0, 30.0, 76.0), cc("b3", 60.0, 80.0, 76.0),
+            cc("a1", 10.0, 30.0, 100.0),
+            cc("b1", 60.0, 80.0, 100.0),
+            cc("a2", 10.0, 30.0, 88.0),
+            cc("b2", 60.0, 80.0, 88.0),
+            cc("a3", 10.0, 30.0, 76.0),
+            cc("b3", 60.0, 80.0, 76.0),
         ];
         let refs: Vec<&TextChunk> = cs.iter().collect();
-        let exclude = [BBox { x0: 0.0, y0: 70.0, x1: 100.0, y1: 110.0 }];
-        assert!(detect_borderless_tables(&refs, &exclude).is_empty(), "excluded region not re-detected");
+        let exclude = [BBox {
+            x0: 0.0,
+            y0: 70.0,
+            x1: 100.0,
+            y1: 110.0,
+        }];
+        assert!(
+            detect_borderless_tables(&refs, &exclude).is_empty(),
+            "excluded region not re-detected"
+        );
     }
 }

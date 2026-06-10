@@ -114,7 +114,9 @@ impl FontInfo {
                 return cm.next_code(data, pos);
             }
         }
-        let len = if self.is_type0 { 2 } else { 1 }.min(data.len() - pos).max(1);
+        let len = if self.is_type0 { 2 } else { 1 }
+            .min(data.len() - pos)
+            .max(1);
         let mut code = 0u32;
         for &b in &data[pos..pos + len] {
             code = (code << 8) | b as u32;
@@ -157,8 +159,13 @@ impl FontInfo {
 /// it on the descendant). Name-based (`-Bold`, `Black`, `Heavy`, `Semibold`) is
 /// the most reliable signal; descriptor `Flags` bit 19 (ForceBold) is a backup.
 fn font_is_bold(doc: &PdfDocument, fd: &Dictionary) -> bool {
-    let base = name_of(fd, b"BaseFont").unwrap_or_default().to_ascii_lowercase();
-    if ["bold", "black", "heavy", "semibold", "-bd", ",bd"].iter().any(|k| base.contains(k)) {
+    let base = name_of(fd, b"BaseFont")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if ["bold", "black", "heavy", "semibold", "-bd", ",bd"]
+        .iter()
+        .any(|k| base.contains(k))
+    {
         return true;
     }
     // FontDescriptor (directly, or on the descendant CID font for Type0).
@@ -180,7 +187,8 @@ fn font_is_bold(doc: &PdfDocument, fd: &Dictionary) -> bool {
 
 /// Resolve a font's `/FontDescriptor`, following `/DescendantFonts` for Type0.
 fn font_descriptor<'a>(doc: &'a PdfDocument, fd: &'a Dictionary) -> Option<&'a Dictionary> {
-    if let Some(Object::Dictionary(d)) = fd.get(b"FontDescriptor").ok().and_then(|o| deref(doc, o)) {
+    if let Some(Object::Dictionary(d)) = fd.get(b"FontDescriptor").ok().and_then(|o| deref(doc, o))
+    {
         return Some(d);
     }
     let Some(Object::Array(desc)) = fd.get(b"DescendantFonts").ok().and_then(|o| deref(doc, o))
@@ -209,7 +217,10 @@ pub fn build_page_fonts(doc: &PdfDocument, page_id: ObjectId) -> HashMap<String,
     };
     for (name, val) in fonts.iter() {
         if let Some(Object::Dictionary(fd)) = deref(doc, val) {
-            out.insert(String::from_utf8_lossy(name).into_owned(), build_font(doc, fd));
+            out.insert(
+                String::from_utf8_lossy(name).into_owned(),
+                build_font(doc, fd),
+            );
         }
     }
     out
@@ -301,10 +312,13 @@ fn cid_widths(doc: &PdfDocument, type0: &Dictionary) -> (Widths, f64) {
     let mut map = HashMap::new();
     let mut dw = 1000.0;
 
-    if let Some(Object::Array(descendants)) =
-        type0.get(b"DescendantFonts").ok().and_then(|o| deref(doc, o))
+    if let Some(Object::Array(descendants)) = type0
+        .get(b"DescendantFonts")
+        .ok()
+        .and_then(|o| deref(doc, o))
     {
-        if let Some(Object::Dictionary(cid_font)) = descendants.first().and_then(|o| deref(doc, o)) {
+        if let Some(Object::Dictionary(cid_font)) = descendants.first().and_then(|o| deref(doc, o))
+        {
             dw = int_of(cid_font, b"DW").map(|v| v as f64).unwrap_or(1000.0);
             if let Some(w) = array_of(doc, cid_font, b"W") {
                 parse_w_array(doc, w, &mut map);
@@ -352,7 +366,8 @@ fn resolve_resources(doc: &PdfDocument, page_id: ObjectId) -> Option<&Dictionary
     let mut id = page_id;
     for _ in 0..16 {
         let dict = doc.get_dictionary(id).ok()?;
-        if let Some(Object::Dictionary(res)) = dict.get(b"Resources").ok().and_then(|o| deref(doc, o))
+        if let Some(Object::Dictionary(res)) =
+            dict.get(b"Resources").ok().and_then(|o| deref(doc, o))
         {
             return Some(res);
         }

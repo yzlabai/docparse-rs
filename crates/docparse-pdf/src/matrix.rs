@@ -21,11 +21,25 @@ pub struct Matrix {
 
 impl Matrix {
     pub fn identity() -> Self {
-        Self { a: 1.0, b: 0.0, c: 0.0, d: 1.0, e: 0.0, f: 0.0 }
+        Self {
+            a: 1.0,
+            b: 0.0,
+            c: 0.0,
+            d: 1.0,
+            e: 0.0,
+            f: 0.0,
+        }
     }
 
     pub fn translate(x: f64, y: f64) -> Self {
-        Self { a: 1.0, b: 0.0, c: 0.0, d: 1.0, e: x, f: y }
+        Self {
+            a: 1.0,
+            b: 0.0,
+            c: 0.0,
+            d: 1.0,
+            e: x,
+            f: y,
+        }
     }
 
     /// `self` applied first, then `other`.
@@ -42,7 +56,10 @@ impl Matrix {
 
     /// Transform a point.
     pub fn apply(&self, x: f64, y: f64) -> (f64, f64) {
-        (self.a * x + self.c * y + self.e, self.b * x + self.d * y + self.f)
+        (
+            self.a * x + self.c * y + self.e,
+            self.b * x + self.d * y + self.f,
+        )
     }
 
     /// Vertical scale factor of the linear part — used to size glyphs.
@@ -57,7 +74,14 @@ mod tests {
 
     #[test]
     fn identity_is_neutral() {
-        let m = Matrix { a: 2.0, b: 0.0, c: 0.0, d: 3.0, e: 5.0, f: 7.0 };
+        let m = Matrix {
+            a: 2.0,
+            b: 0.0,
+            c: 0.0,
+            d: 3.0,
+            e: 5.0,
+            f: 7.0,
+        };
         let r = m.mul(&Matrix::identity());
         assert_eq!((r.a, r.d, r.e, r.f), (2.0, 3.0, 5.0, 7.0));
     }
@@ -65,7 +89,14 @@ mod tests {
     #[test]
     fn translate_then_scale_order() {
         // p * (translate(10,0) * scale2) == (p*translate) * scale2
-        let scale2 = Matrix { a: 2.0, b: 0.0, c: 0.0, d: 2.0, e: 0.0, f: 0.0 };
+        let scale2 = Matrix {
+            a: 2.0,
+            b: 0.0,
+            c: 0.0,
+            d: 2.0,
+            e: 0.0,
+            f: 0.0,
+        };
         let m = Matrix::translate(10.0, 0.0).mul(&scale2);
         assert_eq!(m.apply(0.0, 0.0), (20.0, 0.0));
     }

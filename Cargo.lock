@@ -403,6 +403,7 @@ dependencies = [
  "docparse-docx",
  "docparse-html",
  "docparse-pdf",
+ "serde_json",
 ]
 
 [[package]]

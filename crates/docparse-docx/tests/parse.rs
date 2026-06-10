@@ -23,7 +23,10 @@ fn parses_headings_paragraphs_and_table() {
         }
     }
 
-    assert!(texts.iter().any(|t| t == "Annual Report"), "heading text present");
+    assert!(
+        texts.iter().any(|t| t == "Annual Report"),
+        "heading text present"
+    );
     assert!(
         texts.iter().any(|t| t.contains("introductory paragraph")),
         "body paragraph present"

@@ -69,11 +69,7 @@ pub fn reconstruct_lines(chunks: &[&TextChunk]) -> Vec<Line> {
     // Drop vertical/rotated marginalia (e.g. the sideways arXiv stamp): a
     // multi-char chunk whose box is much taller than wide. It otherwise
     // pollutes reading order and gets misread as a heading.
-    let chunks: Vec<&TextChunk> = chunks
-        .iter()
-        .copied()
-        .filter(|c| !is_vertical(c))
-        .collect();
+    let chunks: Vec<&TextChunk> = chunks.iter().copied().filter(|c| !is_vertical(c)).collect();
     let chunks = chunks.as_slice();
     let order = reading_order(chunks);
 
@@ -250,7 +246,12 @@ impl Acc {
         // (letter before the trailing hyphen, lowercase start next). Standard
         // in text extractors; matches Docling's rejoining.
         let soft_hyphen = self.text.ends_with('-')
-            && self.text.chars().rev().nth(1).is_some_and(|c| c.is_alphabetic())
+            && self
+                .text
+                .chars()
+                .rev()
+                .nth(1)
+                .is_some_and(|c| c.is_alphabetic())
             && text.chars().next().is_some_and(|c| c.is_lowercase());
         if soft_hyphen {
             self.text.pop();
@@ -356,7 +357,8 @@ fn is_heading_text(t: &str) -> bool {
     let numbered = words.len() >= 2
         && {
             let w = words[0];
-            w.chars().all(|c| c.is_ascii_digit() || c == '.') && w.chars().any(|c| c.is_ascii_digit())
+            w.chars().all(|c| c.is_ascii_digit() || c == '.')
+                && w.chars().any(|c| c.is_ascii_digit())
         }
         && words[1].chars().next().is_some_and(|c| c.is_uppercase());
     let letters: Vec<char> = t.chars().filter(|c| c.is_alphabetic()).collect();
@@ -392,7 +394,12 @@ fn make_block(a: Acc, body_size: f32) -> Block {
         size: a.size,
         heading,
         page: a.page,
-        bbox: BBox { x0: a.x0_min, y0: a.y_bot, x1: a.x1_max, y1: a.y_top },
+        bbox: BBox {
+            x0: a.x0_min,
+            y0: a.y_bot,
+            x1: a.x1_max,
+            y1: a.y_top,
+        },
     }
 }
 
@@ -418,10 +425,17 @@ pub fn page_blocks(doc: &Document) -> Vec<Vec<Block>> {
         .pages
         .iter()
         .zip(&table_boxes)
-        .map(|(p, boxes)| p.text_chunks().into_iter().filter(|c| !in_any(c, boxes)).collect())
+        .map(|(p, boxes)| {
+            p.text_chunks()
+                .into_iter()
+                .filter(|c| !in_any(c, boxes))
+                .collect()
+        })
         .collect();
-    let lines_per_page: Vec<Vec<Line>> =
-        chunks_per_page.iter().map(|cs| reconstruct_lines(cs)).collect();
+    let lines_per_page: Vec<Vec<Line>> = chunks_per_page
+        .iter()
+        .map(|cs| reconstruct_lines(cs))
+        .collect();
     let hf = detect_header_footer(&doc.pages, &lines_per_page);
     let body = body_font_size(doc);
 
@@ -448,7 +462,11 @@ fn dehyphenate_blocks(blocks: Vec<Block>) -> Vec<Block> {
             !p.heading
                 && !b.heading
                 && p.text.ends_with('-')
-                && p.text.chars().rev().nth(1).is_some_and(|c| c.is_alphabetic())
+                && p.text
+                    .chars()
+                    .rev()
+                    .nth(1)
+                    .is_some_and(|c| c.is_alphabetic())
                 && b.text.chars().next().is_some_and(|c| c.is_lowercase())
         });
         if join {
@@ -475,7 +493,9 @@ fn dehyphenate_blocks(blocks: Vec<Block>) -> Vec<Block> {
 pub fn body_font_size(doc: &Document) -> f32 {
     let mut counts: HashMap<u32, usize> = HashMap::new();
     for c in doc.pages.iter().flat_map(|p| p.text_chunks()) {
-        *counts.entry((c.font_size * 2.0).round() as u32).or_insert(0) += 1;
+        *counts
+            .entry((c.font_size * 2.0).round() as u32)
+            .or_insert(0) += 1;
     }
     let mut entries: Vec<(u32, usize)> = counts.into_iter().collect();
     entries.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
@@ -491,7 +511,15 @@ mod tests {
         line_w(text, size, cy, 100.0)
     }
     fn line_w(text: &str, size: f32, cy: f32, x1: f32) -> Line {
-        Line { text: text.into(), size, cy, x0: 0.0, x1, page: 1, bold: false }
+        Line {
+            text: text.into(),
+            size,
+            cy,
+            x0: 0.0,
+            x1,
+            page: 1,
+            bold: false,
+        }
     }
 
     // fill_x = 90: lines reaching x1≈100 count as wrapped prose.
@@ -502,7 +530,7 @@ mod tests {
         let lines = vec![
             line("First line of para", 10.0, 200.0),
             line("second line continues", 10.0, 188.0), // gap 12 < 18, fills → merge
-            line("A new paragraph", 10.0, 150.0),        // gap 38 > 18 → break
+            line("A new paragraph", 10.0, 150.0),       // gap 38 > 18 → break
         ];
         let blocks = group_blocks(&lines, 10.0, FILL);
         assert_eq!(blocks.len(), 2);
@@ -514,7 +542,12 @@ mod tests {
     fn vertical_marginalia_is_excluded() {
         let normal = TextChunk {
             text: "hello world".into(),
-            bbox: BBox { x0: 0.0, y0: 0.0, x1: 50.0, y1: 10.0 },
+            bbox: BBox {
+                x0: 0.0,
+                y0: 0.0,
+                x1: 50.0,
+                y1: 10.0,
+            },
             font_size: 10.0,
             font: None,
             page: 1,
@@ -523,7 +556,12 @@ mod tests {
         };
         let stamp = TextChunk {
             text: "arXiv:1234".into(),
-            bbox: BBox { x0: 0.0, y0: 0.0, x1: 5.0, y1: 40.0 }, // tall, narrow
+            bbox: BBox {
+                x0: 0.0,
+                y0: 0.0,
+                x1: 5.0,
+                y1: 40.0,
+            }, // tall, narrow
             font_size: 10.0,
             font: None,
             page: 1,
@@ -568,7 +606,11 @@ mod tests {
         ];
         let blocks = group_blocks(&lines, 10.0, FILL);
         assert_eq!(blocks.len(), 1);
-        assert!(blocks[0].text.contains("compact"), "got: {}", blocks[0].text);
+        assert!(
+            blocks[0].text.contains("compact"),
+            "got: {}",
+            blocks[0].text
+        );
         assert!(!blocks[0].text.contains("com-"), "hyphen removed");
     }
 
@@ -602,16 +644,26 @@ mod tests {
             .map(|(t, cy)| {
                 Element::Text(TextChunk {
                     text: t.to_string(),
-                    bbox: BBox { x0: 0.0, y0: cy - 5.0, x1: 50.0, y1: cy + 5.0 },
+                    bbox: BBox {
+                        x0: 0.0,
+                        y0: cy - 5.0,
+                        x1: 50.0,
+                        y1: cy + 5.0,
+                    },
                     font_size: 10.0,
                     font: None,
                     page: number,
                     confidence: 1.0,
-            bold: false,
+                    bold: false,
                 })
             })
             .collect();
-        Page { number, width: 200.0, height, elements }
+        Page {
+            number,
+            width: 200.0,
+            height,
+            elements,
+        }
     }
 
     #[test]
@@ -626,7 +678,10 @@ mod tests {
                 )
             })
             .collect();
-        let lpp: Vec<Vec<Line>> = pages.iter().map(|p| reconstruct_lines(&p.text_chunks())).collect();
+        let lpp: Vec<Vec<Line>> = pages
+            .iter()
+            .map(|p| reconstruct_lines(&p.text_chunks()))
+            .collect();
         let hf = detect_header_footer(&pages, &lpp);
         // "Page #" (digits folded) should be flagged; body should not.
         assert!(hf.is_running(&line("Page 1", 10.0, 10.0)));
@@ -636,7 +691,10 @@ mod tests {
     #[test]
     fn single_page_has_no_running_content() {
         let pages = vec![page_with_lines(1, &[("Footer", 10.0)], 800.0)];
-        let lpp: Vec<Vec<Line>> = pages.iter().map(|p| reconstruct_lines(&p.text_chunks())).collect();
+        let lpp: Vec<Vec<Line>> = pages
+            .iter()
+            .map(|p| reconstruct_lines(&p.text_chunks()))
+            .collect();
         let hf = detect_header_footer(&pages, &lpp);
         assert!(!hf.is_running(&line("Footer", 10.0, 10.0)));
     }
