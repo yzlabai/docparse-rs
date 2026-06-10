@@ -114,14 +114,18 @@ pub fn chunk_document_with(doc: &Document, opts: ChunkOptions) -> Vec<Chunk> {
                 .partial_cmp(&b.bbox.y1)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
+        // "Follows in its column" = horizontal overlap + top edge below — for
+        // previously spliced tables too, else a right-column table would jump
+        // ahead of an unrelated left-column one on y alone.
+        let follows = |bb: &BBox, t: &Table| {
+            bb.x0 < t.bbox.x1 && t.bbox.x0 < bb.x1 && bb.y1 < t.bbox.y1
+        };
         for t in tables_by_y {
             let pos = items
                 .iter()
                 .position(|it| match it {
-                    Item::Block(b) => {
-                        b.bbox.x0 < t.bbox.x1 && t.bbox.x0 < b.bbox.x1 && b.bbox.y1 < t.bbox.y1
-                    }
-                    Item::Table(prev) => prev.bbox.y1 < t.bbox.y1,
+                    Item::Block(b) => follows(&b.bbox, t),
+                    Item::Table(prev) => follows(&prev.bbox, t),
                 })
                 .unwrap_or(items.len());
             items.insert(pos, Item::Table(t));
