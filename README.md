@@ -39,6 +39,7 @@ cargo build --release
 ./target/release/docparse scan.pdf --ocr           # 扫描件 OCR（需 models/ppocr，数字页零成本）
 ./target/release/docparse hard.pdf --layout        # 版面模型重排宏观读序（需 models/layout，opt-in）
 ./target/release/docparse doc.pdf --vlm-describe --vlm-url http://127.0.0.1:11434 --vlm-model qwen2.5vl   # VLM 图片描述
+./target/release/docparse doc.pdf --image-dir imgs/   # 导出嵌入图片（JPEG/PNG），JSON 带 file、Markdown 带 ![]() 引用
 ./target/release/docparse input.pdf --quality --profile --route-plan   # 质量分/页级画像/路由计划（stderr JSON）
 
 ./target/release/docparse mcp                      # MCP stdio server（agent 直连）

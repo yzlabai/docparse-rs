@@ -219,9 +219,10 @@ fn downscale_max(rgb: &[u8], w: usize, h: usize, max_side: usize) -> (usize, usi
 // ---------------------------------------------------------------------------
 // Minimal PNG encoder (RGB8, stored/uncompressed deflate) — keeps the crate
 // free of image/compression dependencies; VLM payloads don't need small files.
+// Public: the CLI image-export path reuses it for raw-bitmap XObjects.
 // ---------------------------------------------------------------------------
 
-fn encode_png_rgb(rgb: &[u8], w: u32, h: u32) -> Vec<u8> {
+pub fn encode_png_rgb(rgb: &[u8], w: u32, h: u32) -> Vec<u8> {
     // Raw scanlines, each prefixed with filter byte 0 (None).
     let stride = (w as usize) * 3;
     let mut raw = Vec::with_capacity((stride + 1) * h as usize);

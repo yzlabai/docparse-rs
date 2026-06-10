@@ -25,10 +25,12 @@ fn page_tables(page: &Page) -> Vec<&Table> {
 }
 
 /// Per-page reconstruction: text blocks (table content excluded, headers/footers
-/// dropped, paragraphs grouped) plus the page's tables.
+/// dropped, paragraphs grouped) plus the page's tables and exported images.
 struct PageContent<'a> {
     blocks: Vec<Block>,
     tables: Vec<&'a Table>,
+    /// Images that were exported to disk (`file` set) — referenced in Markdown.
+    images: Vec<&'a crate::ir::ImageChunk>,
 }
 
 fn document_content(doc: &Document) -> Vec<PageContent<'_>> {
@@ -38,6 +40,14 @@ fn document_content(doc: &Document) -> Vec<PageContent<'_>> {
         .map(|(blocks, page)| PageContent {
             blocks,
             tables: page_tables(page),
+            images: page
+                .elements
+                .iter()
+                .filter_map(|e| match e {
+                    Element::Image(i) if i.file.is_some() => Some(i),
+                    _ => None,
+                })
+                .collect(),
         })
         .collect()
 }
@@ -110,6 +120,11 @@ pub fn to_markdown(doc: &Document) -> String {
         for table in &pc.tables {
             md.push_str(&markdown_table(table));
             md.push('\n');
+        }
+        for img in &pc.images {
+            if let Some(f) = &img.file {
+                md.push_str(&format!("![image p{}]({})\n\n", img.page, f));
+            }
         }
     }
     md

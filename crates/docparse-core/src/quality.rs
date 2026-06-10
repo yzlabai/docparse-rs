@@ -406,6 +406,7 @@ mod profile_tests {
             height_px: 100,
             kind: ImageKind::None,
             data: Vec::new(),
+            file: None,
         })
     }
 

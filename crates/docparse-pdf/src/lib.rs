@@ -26,7 +26,13 @@ use std::path::Path;
 /// Default page size (US Letter) when a MediaBox can't be resolved.
 const DEFAULT_PAGE: (f32, f32) = (612.0, 792.0);
 
-pub struct PdfParser;
+#[derive(Default)]
+pub struct PdfParser {
+    /// Decode every embedded image's pixels (≥16px a side), not just
+    /// page-covering scan candidates — set by the image-export path; costs
+    /// memory on image-heavy documents, so off by default.
+    pub decode_images: bool,
+}
 
 impl DocumentParser for PdfParser {
     fn name(&self) -> &'static str {
@@ -70,6 +76,7 @@ impl DocumentParser for PdfParser {
                 images,
                 forms,
                 tags,
+                decode_images: self.decode_images,
             });
         }
 

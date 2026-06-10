@@ -16,10 +16,11 @@ use docparse_xlsx::XlsxParser;
 use std::path::PathBuf;
 
 /// Parser registry — one line per format backend. Shared by the CLI path, the
-/// MCP server, and the REST server.
-pub(crate) fn parsers() -> Vec<Box<dyn DocumentParser>> {
+/// MCP server, and the REST server. `decode_images` makes the PDF backend
+/// materialize every embedded image's pixels (the image-export path).
+pub(crate) fn parsers_with(decode_images: bool) -> Vec<Box<dyn DocumentParser>> {
     vec![
-        Box::new(PdfParser),
+        Box::new(PdfParser { decode_images }),
         Box::new(DocxParser),
         Box::new(HtmlParser),
         Box::new(XlsxParser),
@@ -31,7 +32,14 @@ pub(crate) fn parsers() -> Vec<Box<dyn DocumentParser>> {
 
 /// Pick the backend by path and parse — the shared entry for all interfaces.
 pub(crate) fn parse_path(path: &std::path::Path) -> anyhow::Result<docparse_core::ir::Document> {
-    let parser = parsers()
+    parse_path_with(path, false)
+}
+
+pub(crate) fn parse_path_with(
+    path: &std::path::Path,
+    decode_images: bool,
+) -> anyhow::Result<docparse_core::ir::Document> {
+    let parser = parsers_with(decode_images)
         .into_iter()
         .find(|p| p.supports(path))
         .ok_or_else(|| anyhow::anyhow!("no parser supports {}", path.display()))?;
@@ -111,6 +119,12 @@ struct Cli {
     /// Bearer token, if the service requires one.
     #[arg(long)]
     vlm_api_key: Option<String>,
+
+    /// Export embedded raster images (≥16px a side) to this directory as
+    /// JPEG/PNG files; JSON image elements gain a "file" path and Markdown
+    /// references them (PDF only). Mirrors ODL's external image output.
+    #[arg(long)]
+    image_dir: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -168,6 +182,51 @@ pub(crate) fn apply_ocr(
     docparse_core::enhance::apply(&doc, &[ocr as &dyn docparse_core::enhance::Enhancer]).0
 }
 
+/// Write each decoded image to `dir` (JPEG passthrough as-is; raw Gray8/Rgb8
+/// bitmaps as PNG) and record the path on the element so JSON/Markdown can
+/// reference it. Returns the number of files written. Position-only images
+/// (unsupported encodings, below the size gate) are skipped — they keep their
+/// bbox in JSON for audit, same as before.
+fn export_images(
+    doc: &mut docparse_core::ir::Document,
+    dir: &std::path::Path,
+) -> anyhow::Result<usize> {
+    use docparse_core::ir::{Element, ImageKind};
+    std::fs::create_dir_all(dir)?;
+    let mut written = 0usize;
+    for page in &mut doc.pages {
+        let mut idx = 0usize;
+        for el in &mut page.elements {
+            let Element::Image(img) = el else { continue };
+            if img.data.is_empty() {
+                continue;
+            }
+            let (ext, bytes) = match img.kind {
+                ImageKind::Jpeg => ("jpg", std::mem::take(&mut img.data)),
+                ImageKind::Rgb8 => (
+                    "png",
+                    docparse_vlm::encode_png_rgb(&img.data, img.width_px, img.height_px),
+                ),
+                ImageKind::Gray8 => {
+                    let rgb: Vec<u8> = img.data.iter().flat_map(|&g| [g, g, g]).collect();
+                    (
+                        "png",
+                        docparse_vlm::encode_png_rgb(&rgb, img.width_px, img.height_px),
+                    )
+                }
+                ImageKind::None => continue,
+            };
+            idx += 1;
+            let name = format!("p{}-{}.{}", page.number, idx, ext);
+            let path = dir.join(&name);
+            std::fs::write(&path, bytes)?;
+            img.file = Some(path.display().to_string());
+            written += 1;
+        }
+    }
+    Ok(written)
+}
+
 #[derive(Clone, ValueEnum)]
 enum Format {
     Json,
@@ -191,7 +250,12 @@ fn main() -> anyhow::Result<()> {
         .input
         .ok_or_else(|| anyhow::anyhow!("missing input file (see --help)"))?;
 
-    let mut doc = parse_path(&input)?;
+    let mut doc = parse_path_with(&input, cli.image_dir.is_some())?;
+
+    if let Some(dir) = &cli.image_dir {
+        let n = export_images(&mut doc, dir)?;
+        eprintln!("{{\"images_exported\": {n}}}");
+    }
 
     if cli.ocr {
         // Load models only when some page actually needs enhancement — a

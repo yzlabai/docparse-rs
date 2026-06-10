@@ -45,6 +45,9 @@ pub struct PageInput {
     pub forms: HashMap<String, FormX>,
     /// Tagged-PDF marked-content map: MCID → (role, reading order) (G9a).
     pub tags: crate::structure::PageTags,
+    /// Decode every image's pixels, not just page-covering scan candidates —
+    /// set for image export; costs memory on image-heavy documents (opt-in).
+    pub decode_images: bool,
 }
 
 /// Per-content-stream execution context: the resource set in scope. Forms
@@ -56,6 +59,7 @@ struct Ctx<'a> {
     tags: &'a crate::structure::PageTags,
     page_no: usize,
     page_size: (f32, f32),
+    decode_images: bool,
 }
 
 #[derive(Clone)]
@@ -103,6 +107,7 @@ pub fn interpret(input: &PageInput) -> Page {
         tags: &input.tags,
         page_no: input.number,
         page_size: (input.width, input.height),
+        decode_images: input.decode_images,
     };
     exec_content(
         &input.content,
@@ -360,7 +365,11 @@ fn exec_content(
                         .fold(f64::NEG_INFINITY, f64::max) as f32;
                     let (pw, ph) = ctx.page_size;
                     let coverage = ((x1 - x0) * (y1 - y0)) / (pw * ph).max(1.0);
-                    let (kind, data) = if coverage >= SCAN_COVERAGE_MIN {
+                    // decode_images additionally materializes everything ≥16px
+                    // a side (export path); below that it's bullets/icons.
+                    let want = coverage >= SCAN_COVERAGE_MIN
+                        || (ctx.decode_images && img.width >= 16 && img.height >= 16);
+                    let (kind, data) = if want {
                         img.decode()
                     } else {
                         (docparse_core::ir::ImageKind::None, Vec::new())
@@ -372,6 +381,7 @@ fn exec_content(
                         height_px: img.height,
                         kind,
                         data,
+                        file: None,
                     }));
                 } else if let Some(form) = ctx.forms.get(&n) {
                     if depth < MAX_FORM_DEPTH {
@@ -382,6 +392,7 @@ fn exec_content(
                             tags: ctx.tags,
                             page_no: ctx.page_no,
                             page_size: ctx.page_size,
+                            decode_images: ctx.decode_images,
                         };
                         exec_content(
                             &form.content,
@@ -591,6 +602,7 @@ mod tests {
             images: HashMap::new(),
             forms: HashMap::new(),
             tags: Default::default(),
+            decode_images: false,
         })
     }
 

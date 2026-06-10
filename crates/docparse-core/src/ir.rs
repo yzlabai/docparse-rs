@@ -119,8 +119,9 @@ pub enum ImageKind {
 
 /// A raster image region. `data` carries the pixel payload only for
 /// page-covering images (scan candidates, the OCR-enhancer input) so memory
-/// stays bounded on image-heavy digital documents; it is never serialized —
-/// the JSON keeps bbox/dims for audit.
+/// stays bounded on image-heavy digital documents — unless the backend was
+/// asked to decode everything (image export). It is never serialized; the
+/// JSON keeps bbox/dims for audit, plus `file` once exported to disk.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageChunk {
     pub bbox: BBox,
@@ -133,6 +134,9 @@ pub struct ImageChunk {
     pub kind: ImageKind,
     #[serde(skip)]
     pub data: Vec<u8>,
+    /// Path the image was exported to (`--image-dir`), if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
 }
 
 /// One cell of a [`Table`]. MVP: single grid cell (no row/col span yet).
