@@ -136,16 +136,16 @@ flowchart TB
 
 | # | 大模块 | 职责（做什么 / 为什么） | 当前状态 | 算法/架构参照 |
 |---|---|---|---|---|
-| 1 | **统一 IR** | 格式无关数据模型 + 版本化 schema + provenance（解析器/版本/置信度）。系统最重要的长期接口 | 基础 IR 已有，未版本化、无 provenance | 报告 §6 Document IR / `document-ir` |
-| 2 | **PDF 确定性后端** | 内容流解释器 + 字体层 + 精确坐标，纯 Rust 复刻 ODL 快路径 | 骨架可用；文本保真度待提升 | veraPDF-parser（`pd.font`/CMap） |
-| 3 | **版面与阅读顺序** | XY-cut 多栏排序、页眉页脚/水印识别、段落聚合 | XY-cut 已有；页眉页脚/段落待做 | ODL XY-Cut++ |
-| 4 | **语义结构层** | 表格识别、列表层级、标题分级——把 chunk 升维成结构。最大、最有价值、最难 | 未起步 | veraPDF-wcag-algs（`TableBorderConsumer`/`ClusterTableConsumer`） |
-| 5 | **多格式后端** | DOCX/PPTX/XLSX/HTML，各 `impl DocumentParser` 汇入同一 IR | trait 已留挂载点，未实现 | 报告 §10.6 `parser-ooxml`/`parser-web` |
-| 6 | **输出与 RAG** | 序列化 + 结构化切块 + chunk↔页码/bbox 双向引用定位 | JSON/MD/Text 已有；切块/溯源待做 | 报告 §10.6 `document-export`/`document-chunk` |
-| 7 | **质量检测与回退** | 覆盖率/乱码率/阅读顺序异常评分，决定是否触发外接复核 | 未起步 | 报告 §8 / §10.8 |
-| 8 | **外部 AI 服务接入** | OCR / 大模型 / VLM 作**可选增强**：版本化 capability（格式/元素/语言/设备/版本）+ 统一边界，按页触发补难例，主流程可无之独立运行 | 未起步 | 报告 §10.5–§10.6 `parser-plugins` |
+| 1 | **统一 IR** | 格式无关数据模型 + 版本化 schema + provenance（解析器/版本/置信度）。系统最重要的长期接口 | ✅ 版本化 `SCHEMA_VERSION` + provenance + 每 chunk confidence（M2） | 报告 §6 Document IR / `document-ir` |
+| 2 | **PDF 确定性后端** | 内容流解释器 + 字体层 + 精确坐标，纯 Rust 复刻 ODL 快路径 | ✅ 内容流+字体层成熟（AFM/Encoding/CMap/字距，M1）；clean LTR 达 ODL/Docling 水平 | veraPDF-parser（`pd.font`/CMap） |
+| 3 | **版面与阅读顺序** | XY-cut 多栏排序、页眉页脚/水印识别、段落聚合 | ✅ XY-cut+段落聚合+页眉页脚+去连字（M3）；CJK/最难双栏首页属确定性天花板（→模块 8） | ODL XY-Cut++ |
+| 4 | **语义结构层** | 表格识别、列表层级、标题分级——把 chunk 升维成结构。最大、最有价值、最难 | ✅ 表格四检测器（bordered/ruled/cluster/borderless，M4+N4）+ 标题分级；多级表头/合并单元格属神经域 | veraPDF-wcag-algs（`TableBorderConsumer`/`ClusterTableConsumer`） |
+| 5 | **多格式后端** | DOCX/PPTX/XLSX/HTML，各 `impl DocumentParser` 汇入同一 IR | ✅ DOCX/HTML 已接入同一 IR（M5）；PPTX/XLSX 未做 | 报告 §10.6 `parser-ooxml`/`parser-web` |
+| 6 | **输出与 RAG** | 序列化 + 结构化切块 + chunk↔页码/bbox 双向引用定位 | ✅ JSON/MD/Text + 结构化切块 + chunk↔bbox 双向引用（M6），引用率 100% | 报告 §10.6 `document-export`/`document-chunk` |
+| 7 | **质量检测与回退** | 覆盖率/乱码率/阅读顺序异常评分，决定是否触发外接复核 | ✅ 评分（coverage/garbled）+ 按页路由（M7）；reading-order 异常分留空 | 报告 §8 / §10.8 |
+| 8 | **外部 AI 服务接入** | OCR / 大模型 / VLM 作**可选增强**：版本化 capability（格式/元素/语言/设备/版本）+ 统一边界，按页触发补难例，主流程可无之独立运行 | 🚧 可插拔边界+StubOcr 已就绪（M7）；真实 enhancer 待接（N3） | 报告 §10.5–§10.6 `parser-plugins` |
 | 9 | **安全预检与画像** | 恶意对象/ZIP bomb 防护、隐藏文本过滤（防 prompt injection）、复杂度路由 | 未起步 | ODL 隐藏文本过滤 / 报告 §10.2–§10.3 |
-| 10 | **Agent 接入面与运行时** | 面向 agent 的消费接口：CLI（已有）/库/服务化（REST/gRPC/MCP）+ 调度/优先级队列/阶段缓存/可观测 | CLI 已有 | 报告 §10.6 `document-runtime`/`server` |
+| 10 | **Agent 接入面与运行时** | 面向 agent 的消费接口：CLI（已有）/库/服务化（REST/gRPC/MCP）+ 调度/优先级队列/阶段缓存/可观测 | 🚧 CLI/库已有；REST/MCP 服务化进行中（N2，见 [plans/n2-serving.md](plans/n2-serving.md)） | 报告 §10.6 `document-runtime`/`server` |
 
 > 模块即未来的 crate 边界，但**按需拆分**——不为架构整齐提前建空 crate（反 MVP，见 AI_AGENT_DEV_SPEC §3）。
 
@@ -180,7 +180,10 @@ flowchart TB
 
 **质量记分牌（对标 Docling，同尺）**——复用 ODL benchmark 三项指标，只在 **born-digital 子集**上同台，扫描件**显式弃权**并记录（那不是我们的战场，§2）：
 
-- **NID** 阅读顺序 · **TEDS** 表格结构 · **MHS** 标题层级。目标：born-digital 子集三项不低于 Docling（其综合 0.882）。
+- **NID** 阅读顺序 · **TEDS** 表格结构 · **MHS** 标题层级。目标分两档（2026-06-10 据 N1 实测改写，原"聚合三项不低于 Docling 0.882"对确定性路线不可达）：
+  - **确定性路线（回归门，已达成须保持）**：clean born-digital LTR 子集 NID ≥0.92——后续任何改动不得击穿。
+  - **聚合追平（N3 enhancer 的验收指标）**：剩余 gap（CJK 复杂版面、最难双栏论文首页）经实验证明属版面模型/外接增强域，聚合分追平 Docling 由 N3 负责，不再作确定性路线目标。
+- **TEDS 边界须诚实标注**：roadmap §2 的"结构理解要持平"目前只在**表格检出覆盖**上接近 ODL（四检测器，召回 5/6+）；**结构精度**（多级表头/合并单元格/单元格粒度，TEDS 0.044/0.110）不持平、属神经域。且当前 TEDS 为近似实现（精确 APTED 待换），数字偏保守。
 - benchmark **不可拼榜**（报告 §5.2）：只在自建可比子集比，不把不同项目的单分拼排行。
 
 > **现状（2026-06-10，去 RTL born-digital LTR）**：vs ODL NID **0.722** / MHS **0.614**；vs Docling NID **0.763** / MHS **0.625**。**clean 子集已达 docling/ODL 水平**（`multi_page` 0.984、`code`/`picture` 0.99、`redp5110` 0.972、`2305` 0.921）。聚合被两类**确定性天花板**拖低——CJK 复杂版面（`skipped_*`/`normal_4pages`）与最难双栏论文首页（`2203`/`2206`）——属 N3 enhancer/版面模型领域。⚠️ 关键纠偏：曾有两个 GT 提取器漏算列表文本，**一直低估** NID（修复后我方产出未变即 +0.07）。详见 [devlogs/2026-06-10-session-summary](devlogs/2026-06-10-session-summary.md)。
