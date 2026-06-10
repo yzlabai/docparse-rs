@@ -1,0 +1,95 @@
+# 迭代计划 · Phase 4(G1–G7):补齐 Docling 明显占优的轴
+
+> 依据:[refer/docling-objective-comparison.md](../refer/docling-objective-comparison.md) 的诚实清单——逐条映射成里程碑。承接 [next-iteration.md](next-iteration.md)(N1–N6 已收官)。
+>
+> **不变的边界**:四条身份约束不动(纯 Rust/不光栅化/确定性核心独立/模型可插拔)。补差距的手段分两类——**确定性可自研的直接做**(格式广度/区域 OCR/Form 流),**神经域的沿 N3 已验证的 P4 模式内嵌**(tract + 外部 ONNX 模型,先 spike 门控)。显式不追:公式→LaTeX、图片描述、GPU(VLM/重模型走 N3b HTTP 外接,不内嵌)。
+
+## 0. 差距 → 里程碑映射
+
+| Docling 优势(对比文档 §1) | 应对 | 里程碑 |
+|---|---|---|
+| 格式广度 15+ vs 3 | 确定性自研:XLSX/PPTX(+顺手 CSV/Markdown) | **G1** |
+| 难版面质量上限(神经版面) | ONNX 版面模型内嵌,难页路由(P4 模式) | **G2** |
+| 表格结构精度(TableFormer) | ONNX 表结构模型内嵌(SLANet 系) | **G3** |
+| OCR 广度(区域级/方向/多语种) | 区域级 OCR + cls + 多语种字典 + Form 流 | **G4** |
+| RTL | BiDi 阅读顺序(评估需求后做) | **G5** |
+| 生态(LangChain/LlamaIndex/社区) | Python 薄客户端 + 两个 loader + crates.io | **G6** |
+| 鲁棒成熟度(海量语料锤炼) | 大语料压测 + fuzzing | **G7** |
+
+## 1. 里程碑
+
+### G1 · 格式广度:XLSX + PPTX(+CSV/Markdown 顺手)— *模块 5* · 确定性自研
+广度是 Docling 被首选的第一理由;XLSX/PPTX 有显式 XML 结构,ROI 最高,M5(DOCX/HTML)的 `synth` 合成坐标直接复用。
+
+- [ ] `docparse-xlsx`:工作表 → `Element::Table`(每 sheet 一页),数字/公式取显示值;**依赖征询:`calamine`**(纯 Rust,事实标准)。
+- [ ] `docparse-pptx`:slide 文本框/标题/表格 → 合成版面(每 slide 一页);**依赖征询:`quick-xml`+zip 解析**(docx-rs 不覆盖 pptx;zip 预检复用 `core::limits`)。
+- [ ] CSV(std 即可)与 Markdown(**征询 `pulldown-cmark`**)作低成本顺手项,可砍。
+- **验收**:四格式经同一 IR 出 chunks 带合成 bbox;注册表各一行;零回归。格式数 3→5(+2 顺手)。
+
+### G2 · 版面 enhancer:ONNX 版面模型内嵌 — *模块 8 / P4 模式* · 🎯 质量上限的正解
+聚合记分牌剩余 gap(CJK 信息图 0.12–0.22、复杂首页)全在这——确定性已证不可强攻,Docling 靠 DocLayNet 系模型赢的就是这层。
+
+- [ ] **Spike 门控**(同 N3 方法):PP-DocLayout/PicoDet 系 ONNX(~5–20MB,Apache-2.0)能否在 `tract` 跑通;不能则评估 RT-DETR 替代或放弃内嵌走 N3b HTTP。
+- [ ] **触发**:N5c 画像已就绪——`scanned`/`mixed`/版面复杂信号页才路由(对版面模型,"难页"判据可用确定性输出的异常分:块重叠率/读序回跳),clean 页不碰模型。
+- [ ] **归一**:模型出 region(标题/正文/图/表/页眉脚)+ bbox → 重排该页读序、修正标题/表区域;经 `Enhancer` 边界,source 标 `layout:<model>`,确定性结果仍独立成立。
+- **验收**:`skipped_*` NID 0.12–0.22 → ≥0.5;`normal_4pages` ≥0.7;clean 文档零回归(回归门 ≥0.92 不破);数字 clean 页零模型。
+
+### G3 · 表结构 enhancer:ONNX 表结构模型内嵌 — *模块 8 / P4 模式*
+TEDS 0.098/0.187 的主因是多级表头/合并单元格(神经域)。SLANet 系(PP-StructureV2,~9MB)输出结构 token + cell bbox,正是缺的拓扑。
+
+- [ ] **Spike 门控**:SLANet ONNX 在 `tract` 的算子覆盖;输入是表区域图——born-digital 的表没有位图,需评估**用矢量线+文本合成栅格**是否破"不光栅化"(若破,此模型仅服务扫描表,born-digital 走 G3b)。
+- [ ] **G3b(确定性兜底)**:合并单元格/多级表头的几何推断(跨列 span 由对齐+横线覆盖推断)——P1c 教训在前,只做高置信形态,不强攻。
+- **验收**:TEDS vs Docling 0.187 → ≥0.4(含表 6 份);检出零回归。⚠️ 此里程碑**风险最高**,spike 不过即降级为 G3b + N3b 外接,不硬上。
+
+### G4 · OCR 长尾 — *模块 8 续*
+- [ ] **区域级 OCR**:`mixed` 页(画像已识别)只对位图区域跑 OCR、与程序化文本空间去重(对照 Docling `get_ocr_rects`/R-tree 思路,独立实现)——当前整页粒度只服务纯扫描页。
+- [ ] **方向分类 cls**:换源获取(ModelScope/PaddleOCR 官方转换),接入旋转校正;拿不到则文档化跳过。
+- [ ] **多语种**:en 字典 + `--ocr-lang` 选模型组;模型目录布局支持多组。
+- [ ] **Form XObject 流解释**(同时修文本与图收集的已知 TODO):解释器递归执行 Form 内容流(带深度上限,复用 `limits`)。
+- **验收**:混合页(文本+图章/扫描片段)端到端;Form 内文本/扫描图可达;现有样例零回归。
+
+### G5 · RTL 阅读顺序 — *模块 3* · 按需
+3 份 RTL 测试 0 分在案。BiDi 重排(**征询 `unicode-bidi`**)+ XY-cut 镜像。**先评估真实需求再做**——若目标语料无 RTL,显式记弃权而非默认排期。
+
+### G6 · 生态接入 — *模块 10 外延* · 低代码高杠杆
+- [ ] **Python 薄客户端**(`pip install docparse-client`):子进程包 CLI / HTTP 包 REST,零重依赖;
+- [ ] **LangChain DocumentLoader + LlamaIndex Reader**:各 ~百行,产出带 bbox metadata 的 Document;
+- [ ] **crates.io 发布**:workspace crate 整理(README.en 已就绪);MCP server 进 MCP registry。
+- **验收**:LangChain 五行代码加载 PDF 带引用 metadata;PyPI/crates.io 可安装。
+
+### G7 · 鲁棒长尾:语料压测 + fuzzing — *横切*
+"海量语料锤炼"没有捷径,但可以系统性逼近:
+
+- [ ] **大语料无 panic 压测**:arXiv 批量(千份级)跑 `-f chunks --quality`,统计 panic/超时/0 文本率与质量分分布,异常样本归档成回归集;
+- [ ] **cargo-fuzz**:对 PDF 解释器/CMap/zip 预检三个入口做覆盖引导 fuzzing(**征询 dev 依赖 cargo-fuzz**);
+- [ ] 撞到的崩溃/挂起各修各的,沉淀进 `limits` 守卫。
+- **验收**:千份语料 0 panic 0 挂起;fuzz 各入口 24h 无 crash。
+
+## 2. 次序与依赖
+
+```mermaid
+flowchart LR
+  G2[G2 版面 enhancer<br/>质量上限] --> G3[G3 表结构]
+  G1[G1 XLSX/PPTX<br/>广度] 
+  G4[G4 OCR 长尾]
+  G6[G6 生态] 
+  G7[G7 压测/fuzz]
+```
+
+| 里程碑 | 价值 | 风险/前置 | 新依赖(均先征询) |
+|---|---|---|---|
+| **G2 版面**(建议先做) | 聚合记分牌最大剩余 gap | spike 门控;难页判据设计 | 无(模型外部文件) |
+| G1 广度 | Docling 首选理由,确定性低风险 | 无 | calamine / quick-xml / pulldown-cmark |
+| G4 OCR 长尾 | 混合页+Form 流补完 N3 | cls 模型获取 | 无 |
+| G3 表结构 | TEDS 主差距 | **最高**:tract 算子 + 可能触身份约束 | 无 |
+| G6 生态 | 可见度/采用率 | 无技术风险 | PyPI 侧 |
+| G7 鲁棒 | "成熟度"差距唯一解法 | 跑批时间 | cargo-fuzz(dev) |
+| G5 RTL | 按需 | 需求未证实 | unicode-bidi |
+
+**建议次序**:G2 spike(半天定生死)→ G2 落地 → G1 → G4 → G3 spike → G6/G7 穿插。每里程碑照 SDD:plan 已有(本文),完成回填 devlog + testresults,记分牌即验收门。
+
+## 3. 显式不做(守住定位)
+
+- 公式→LaTeX、代码识别、图片分类/描述、图表抽取:VLM/重模型域,经 **N3b HTTP 外接**(docling-serve 兼容)服务,不内嵌不自研;
+- GPU 加速:与零依赖单二进制身份冲突,不做;
+- 追格式数字面平齐(邮件/字幕/METS…):长尾格式按真实需求单独立项,不为数字好看铺货。

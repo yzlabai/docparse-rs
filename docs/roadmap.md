@@ -225,4 +225,4 @@ flowchart TD
   Q -->|供 agent/RAG 调用| E[P3: 服务化接口 + 切块溯源 + AI 可插拔增强]
 ```
 
-进度（2026-06-10）：**M1–M7 与 N1（评测）、N2（服务化 MCP+REST）、N4 大部（表格四检测器/标题/词距）、N5（隐藏文本过滤 + 资源守卫）全部完成**——73 单测、clippy 零 warning、输出跨 CLI/库/MCP/REST 四接口逐字节一致；记分牌见 §6 现状。**近期仅剩 N3 真实 enhancer**（部署选型待决策，已暂缓）；其余剩项属确定性天花板（CJK 版面/无框表 recall）或远期（N5c 画像、P4 ONNX、人工真值集）。里程碑细节见 [plans/next-iteration.md](plans/next-iteration.md)，devlog 见 [devlogs/](devlogs/)。
+进度（2026-06-10）：**M1–M7 与 N1（评测）、N2（服务化 MCP+REST）、N4 大部（表格四检测器/标题/词距）、N5（隐藏文本过滤 + 资源守卫）全部完成**——73 单测、clippy 零 warning、输出跨 CLI/库/MCP/REST 四接口逐字节一致；记分牌见 §6 现状。**近期仅剩 N3 真实 enhancer**（部署选型待决策，已暂缓）；其余剩项属确定性天花板（CJK 版面/无框表 recall）或远期（N5c 画像、P4 ONNX、人工真值集）。里程碑细节见 [plans/next-iteration.md](plans/next-iteration.md)；**下一阶段**（补齐 Docling 占优轴：版面/表结构 enhancer、XLSX/PPTX、OCR 长尾、生态、压测）见 [plans/closing-docling-gaps.md](plans/closing-docling-gaps.md)；devlog 见 [devlogs/](devlogs/)。
