@@ -76,13 +76,55 @@ struct Cli {
 enum Command {
     /// Serve the parser over MCP (newline-delimited JSON-RPC on stdio) so
     /// agents can call parse/chunk/locate directly.
-    Mcp,
+    Mcp {
+        /// Model dir for the optional `ocr: true` tool argument.
+        #[arg(long, default_value = "models/ppocr")]
+        ocr_models: PathBuf,
+    },
     /// Serve a REST API on 127.0.0.1: POST /parse (multipart) + GET /healthz.
     Serve {
         /// TCP port to listen on.
         #[arg(long, default_value_t = 8642)]
         port: u16,
+        /// Model dir for the optional `?ocr=true` query parameter.
+        #[arg(long, default_value = "models/ppocr")]
+        ocr_models: PathBuf,
     },
+}
+
+/// Lazily-loaded OCR enhancer shared by the serving faces: models are read on
+/// the first request that asks for OCR, never at startup, so serving digital
+/// documents stays model-free. The load outcome (ok or a stable error string)
+/// is cached — broken setups fail fast on every call instead of re-reading.
+pub(crate) struct OcrState {
+    dir: PathBuf,
+    cell: std::sync::OnceLock<Result<docparse_ocr::PpOcrEnhancer, String>>,
+}
+
+impl OcrState {
+    pub(crate) fn new(dir: PathBuf) -> Self {
+        Self {
+            dir,
+            cell: std::sync::OnceLock::new(),
+        }
+    }
+
+    pub(crate) fn get(&self) -> Result<&docparse_ocr::PpOcrEnhancer, String> {
+        self.cell
+            .get_or_init(|| {
+                docparse_ocr::PpOcrEnhancer::new(&self.dir).map_err(|e| format!("{e:#}"))
+            })
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+}
+
+/// Run quality-routed enhancement over a parsed document (shared by all faces).
+pub(crate) fn apply_ocr(
+    doc: docparse_core::ir::Document,
+    ocr: &docparse_ocr::PpOcrEnhancer,
+) -> docparse_core::ir::Document {
+    docparse_core::enhance::apply(&doc, &[ocr as &dyn docparse_core::enhance::Enhancer]).0
 }
 
 #[derive(Clone, ValueEnum)]
@@ -98,8 +140,10 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Command::Mcp) => return mcp::serve(),
-        Some(Command::Serve { port }) => return server::serve(port),
+        Some(Command::Mcp { ocr_models }) => return mcp::serve(OcrState::new(ocr_models)),
+        Some(Command::Serve { port, ocr_models }) => {
+            return server::serve(port, OcrState::new(ocr_models))
+        }
         None => {}
     }
     let input = cli

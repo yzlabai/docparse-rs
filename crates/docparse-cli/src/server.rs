@@ -11,7 +11,7 @@
 //! machine early"). Parsing runs in `spawn_blocking` (rayon inside is
 //! CPU-bound). Security pre-checks (zip bombs etc.) are N5.
 
-use axum::extract::{DefaultBodyLimit, Multipart, Query};
+use axum::extract::{DefaultBodyLimit, Multipart, Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -20,25 +20,27 @@ use docparse_core::output;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
-pub fn serve(port: u16) -> anyhow::Result<()> {
+pub fn serve(port: u16, ocr: crate::OcrState) -> anyhow::Result<()> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
         .block_on(async {
             let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
             eprintln!("docparse REST listening on http://127.0.0.1:{port}");
-            axum::serve(listener, router()).await?;
+            axum::serve(listener, router(ocr)).await?;
             Ok(())
         })
 }
 
-fn router() -> Router {
+fn router(ocr: crate::OcrState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/parse", post(parse))
         // Real PDFs run tens of MB; axum's 2MB default would reject them.
         .layer(DefaultBodyLimit::max(256 * 1024 * 1024))
+        .with_state(Arc::new(ocr))
 }
 
 async fn healthz() -> Response {
@@ -51,8 +53,13 @@ async fn healthz() -> Response {
     ([(header::CONTENT_TYPE, "application/json")], body).into_response()
 }
 
-async fn parse(Query(q): Query<HashMap<String, String>>, mut multipart: Multipart) -> Response {
+async fn parse(
+    State(ocr): State<Arc<crate::OcrState>>,
+    Query(q): Query<HashMap<String, String>>,
+    mut multipart: Multipart,
+) -> Response {
     let format = q.get("format").cloned().unwrap_or_else(|| "json".into());
+    let want_ocr = matches!(q.get("ocr").map(String::as_str), Some("1") | Some("true"));
     // First field that carries a filename = the document (extension picks the
     // parser backend, same as the CLI).
     let field = loop {
@@ -80,8 +87,12 @@ async fn parse(Query(q): Query<HashMap<String, String>>, mut multipart: Multipar
     let task_path = tmp.clone();
     let task_name = name.clone();
     let started = std::time::Instant::now();
-    let rendered =
-        tokio::task::spawn_blocking(move || render(&task_path, &task_name, &format)).await;
+    let rendered = tokio::task::spawn_blocking(move || {
+        // Model load (first OCR request only) and inference are both
+        // CPU-bound — they belong on the blocking pool with the parse.
+        render(&task_path, &task_name, &format, want_ocr.then_some(&*ocr))
+    })
+    .await;
     let elapsed_ms = started.elapsed().as_millis().to_string();
     std::fs::remove_file(&tmp).ok();
 
@@ -114,8 +125,19 @@ fn err(status: StatusCode, msg: &str) -> Response {
 /// document's source annotation — clients sent the file, they should see its
 /// name, not our temp dir (which would also leak server paths and make
 /// responses nondeterministic).
-fn render(path: &Path, source_name: &str, format: &str) -> anyhow::Result<(String, &'static str)> {
+fn render(
+    path: &Path,
+    source_name: &str,
+    format: &str,
+    ocr: Option<&crate::OcrState>,
+) -> anyhow::Result<(String, &'static str)> {
     let mut doc = crate::parse_path(path)?;
+    if let Some(state) = ocr {
+        let enhancer = state
+            .get()
+            .map_err(|e| anyhow::anyhow!("ocr models unavailable: {e}"))?;
+        doc = crate::apply_ocr(doc, enhancer);
+    }
     doc.source = source_name.to_string();
     Ok(match format {
         "json" => (output::to_json(&doc)?, "application/json"),
@@ -162,8 +184,8 @@ mod tests {
     #[test]
     fn render_matches_cli_pipeline_and_is_deterministic() {
         let path = temp_html("docparse-rest-test.html");
-        let (a, ct) = render(&path, "up.html", "markdown").unwrap();
-        let (b, _) = render(&path, "up.html", "markdown").unwrap();
+        let (a, ct) = render(&path, "up.html", "markdown", None).unwrap();
+        let (b, _) = render(&path, "up.html", "markdown", None).unwrap();
         assert_eq!(a, b, "same input must render byte-identically");
         assert_eq!(ct, "text/markdown; charset=utf-8");
         assert!(a.contains("Hello rest."));
@@ -178,7 +200,7 @@ mod tests {
     #[test]
     fn unknown_format_is_an_error() {
         let path = temp_html("docparse-rest-badfmt.html");
-        assert!(render(&path, "x.html", "yaml").is_err());
+        assert!(render(&path, "x.html", "yaml", None).is_err());
     }
 
     #[test]
