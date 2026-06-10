@@ -42,11 +42,11 @@ flowchart LR
 - **现状判定**：**clean born-digital LTR 已达 docling/ODL 水平**（`multi_page`/`code`/`picture`/`redp5110`/`2305` 均 0.92–0.99）。聚合被两类**确定性天花板**拖低：CJK 复杂版面（`skipped_*`/`normal_4pages`）、最难双栏论文首页（`2203`/`2206` 作者块+版权脚注阅读顺序）——属 N3 enhancer/版面模型，非确定性可达。
 - **仍待**：真·人工真值（当前是 agreement-with-Docling，非 accuracy）；TEDS 换精确 APTED；用户若外采人工标注集可进一步出"准确率"。
 
-### N2 · 服务化接口（MCP → REST）— *模块 10* · 📋 plan 已立：[n2-serving.md](n2-serving.md)
-P3 的"面向 agent 可直接调用"。CLI 已有，加库外的服务面。**次序反转为 MCP 先行**（stdio JSON-RPC 零新依赖、agent 立即可连；详见 plan §2）。
+### N2 · 服务化接口（MCP → REST）— *模块 10* · ✅ 完成（2026-06-10，[plan](n2-serving.md)/[testresults](../testresults/2026-06-10-n2-serving.md)）
+P3 的"面向 agent 可直接调用"。**次序反转为 MCP 先行**（stdio JSON-RPC 零新依赖、agent 立即可连；详见 plan §2）。
 
-- [ ] **MCP server**（`docparse mcp`，stdio，手写 JSON-RPC，零新依赖）：parse_document/get_chunks/locate 三 tool，agent 直连（claude.ai/Claude Code 等）。
-- [ ] **REST**（`axum`+`tokio`，依赖待确认）：`POST /parse`（multipart 文件 → JSON/Markdown/chunks）、`GET /healthz`；流式可选。
+- [x] **MCP server**（`docparse mcp`，stdio，手写 JSON-RPC，零新依赖）：parse_document/get_chunks/locate 三 tool；locate 反查 bbox 中心命中同一 chunk；坏输入结构化 error 不死。
+- [x] **REST**（`axum`+`tokio`，用户批准）：`POST /parse`（multipart → json/markdown/text/chunks，与 CLI 逐字节一致）、`GET /healthz`、`x-docparse-ms` 计时头；127.0.0.1 绑定。
 - [ ] 调度/并发/阶段缓存的最小版；可观测（per-stage 计时 + quality 分）。
 - **验收**：一个 agent 经 MCP 上传 PDF → 拿到带 bbox 引用的 chunks → 高亮回原坐标。
 - **依赖/风险**：**新依赖**（HTTP 框架 / MCP SDK）按 CLAUDE.md §4 先征询选型。

@@ -24,6 +24,10 @@ lopdf = "0.41"
 clap = { version = "4", features = ["derive"] }
 docx-rs = "0.4"
 scraper = "0.21"
+# REST face (N2b, user-approved 2026-06-10): axum/tokio kept to the features
+# the server actually uses — no full-feature pull-in.
+axum = { version = "0.8", features = ["multipart"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net"] }
 
 [profile.release]
 lto = "thin"

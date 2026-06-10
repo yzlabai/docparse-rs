@@ -167,12 +167,7 @@ fn str_arg<'a>(args: &'a Value, key: &str) -> anyhow::Result<&'a str> {
 }
 
 fn parse_path(path: &str) -> anyhow::Result<docparse_core::ir::Document> {
-    let path = std::path::Path::new(path);
-    let parser = crate::parsers()
-        .into_iter()
-        .find(|p| p.supports(path))
-        .ok_or_else(|| anyhow::anyhow!("no parser supports {}", path.display()))?;
-    parser.parse(path)
+    crate::parse_path(std::path::Path::new(path))
 }
 
 fn tool_parse_document(args: &Value) -> anyhow::Result<String> {

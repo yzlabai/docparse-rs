@@ -50,7 +50,7 @@ MCP stdio 协议很小（`initialize`、`tools/list`、`tools/call` 三个方法
 
 - [x] MCP 直连端到端：PDF 路径 → 带 bbox 的 chunks（provenance+quality 信封）→ `locate` 反查 bbox 中心命中同一 chunk。记录：[testresults/2026-06-10-n2a-mcp-server.md](../testresults/2026-06-10-n2a-mcp-server.md)。
 - [x] MCP 三 tool 单测（含同请求逐字节确定）；坏文件/坏参数不 panic、返回结构化 error（isError/-32601/-32602），server 存活。
-- [ ] REST：`curl` multipart 上传 → 与 CLI 同输出逐字节一致（确定性跨接口保持）。
+- [x] REST：`curl` multipart 上传 → 与 CLI 同输出**逐字节一致**（source 注释用上传文件名替换暂存路径,既保确定性又不泄露服务器路径）;坏格式 422、无文件 400、坏 PDF 422 且 server 存活;`x-docparse-ms` 计时头(N2c 最小可观测,不动 body)。依赖 axum+tokio 已经用户批准（2026-06-10）。记录：[testresults/2026-06-10-n2-serving.md](../testresults/2026-06-10-n2-serving.md)。
 - [x] 二进制体积 5.39MB < 20MB;clippy 零 warning;60 测试全绿(原 54 零回归 + mcp 6)。
 
 ## 5. 风险与边界

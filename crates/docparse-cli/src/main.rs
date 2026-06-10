@@ -1,6 +1,7 @@
 //! `docparse` — parse a document into JSON / Markdown / text.
 
 mod mcp;
+mod server;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use docparse_core::output;
@@ -10,14 +11,23 @@ use docparse_html::HtmlParser;
 use docparse_pdf::PdfParser;
 use std::path::PathBuf;
 
-/// Parser registry — one line per format backend. Shared by the CLI path and
-/// the MCP server.
+/// Parser registry — one line per format backend. Shared by the CLI path, the
+/// MCP server, and the REST server.
 pub(crate) fn parsers() -> Vec<Box<dyn DocumentParser>> {
     vec![
         Box::new(PdfParser),
         Box::new(DocxParser),
         Box::new(HtmlParser),
     ]
+}
+
+/// Pick the backend by path and parse — the shared entry for all interfaces.
+pub(crate) fn parse_path(path: &std::path::Path) -> anyhow::Result<docparse_core::ir::Document> {
+    let parser = parsers()
+        .into_iter()
+        .find(|p| p.supports(path))
+        .ok_or_else(|| anyhow::anyhow!("no parser supports {}", path.display()))?;
+    parser.parse(path)
 }
 
 #[derive(Parser)]
@@ -57,6 +67,12 @@ enum Command {
     /// Serve the parser over MCP (newline-delimited JSON-RPC on stdio) so
     /// agents can call parse/chunk/locate directly.
     Mcp,
+    /// Serve a REST API on 127.0.0.1: POST /parse (multipart) + GET /healthz.
+    Serve {
+        /// TCP port to listen on.
+        #[arg(long, default_value_t = 8642)]
+        port: u16,
+    },
 }
 
 #[derive(Clone, ValueEnum)]
@@ -71,19 +87,16 @@ enum Format {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    if let Some(Command::Mcp) = cli.command {
-        return mcp::serve();
+    match cli.command {
+        Some(Command::Mcp) => return mcp::serve(),
+        Some(Command::Serve { port }) => return server::serve(port),
+        None => {}
     }
     let input = cli
         .input
         .ok_or_else(|| anyhow::anyhow!("missing input file (see --help)"))?;
 
-    let parser = parsers()
-        .into_iter()
-        .find(|p| p.supports(&input))
-        .ok_or_else(|| anyhow::anyhow!("no parser supports {}", input.display()))?;
-
-    let doc = parser.parse(&input)?;
+    let doc = parse_path(&input)?;
 
     if cli.quality {
         eprintln!("{}", docparse_core::quality::analyze(&doc).to_json());
