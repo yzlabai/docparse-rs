@@ -68,8 +68,18 @@ def _teds_one(pt, gt):
     return 0.3 * shape + 0.7 * content
 
 
+def _is_table(t):
+    """A table needs 2-D structure: ≥2 rows AND ≥2 columns. A 1×N / N×1 'table'
+    is a list or a stray figure fragment, not a grid — applied symmetrically to
+    predicted and reference so neither side is credited/penalized for degenerate
+    detections (e.g. ODL emits 1×2 page-number fragments and chart-axis rows as
+    'tables' on 2203)."""
+    return len(t) >= 2 and max((len(r) for r in t), default=0) >= 2
+
+
 def teds(pred, gt):
-    pts, gts = pred.get("tables", []), gt.get("tables", [])
+    pts = [t for t in pred.get("tables", []) if _is_table(t)]
+    gts = [t for t in gt.get("tables", []) if _is_table(t)]
     if not pts and not gts:
         return 1.0
     # Match tables by best content overlap, NOT by emission index: two systems
