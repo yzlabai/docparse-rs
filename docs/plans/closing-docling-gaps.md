@@ -40,7 +40,8 @@
 ### G2 · 版面 enhancer:ONNX 版面模型内嵌 — *模块 8 / P4 模式* · 🎯 质量上限的正解
 聚合记分牌剩余 gap(CJK 信息图 0.12–0.22、复杂首页)全在这——确定性已证不可强攻,Docling 靠 DocLayNet 系模型赢的就是这层。
 
-- [ ] **Spike 门控**(同 N3 方法):PP-DocLayout/PicoDet 系 ONNX(~5–20MB,Apache-2.0)能否在 `tract` 跑通;不能则评估 RT-DETR 替代或放弃内嵌走 N3b HTTP。
+- [x] **Spike 门控 ✅**(2026-06-10,[devlog](../devlogs/2026-06-10-g2-layout-spike.md)):DocLayout-YOLO(75MB,DocStructBench 含中文)在 `tract` 直接跑通,输出已解码框无需 NMS;CJK 难页正确识别双栏/标题/页眉脚;2.37s/页(仅难页触发)。table/formula 区域同模型可得(G3/G8c 共用)。
+- [ ] **光栅来源**:born-digital 页需真实渲染(草图已否决)——选型分析见 [refer/rasterization-options-analysis.md](../refer/rasterization-options-analysis.md)(推荐:可选 crate 包 `hayro` 纯 Rust 渲染,实测 99ms/页 CJK 完全正确;**待用户确认**身份改述+依赖)。
 - [ ] **触发**:N5c 画像已就绪——`scanned`/`mixed`/版面复杂信号页才路由(对版面模型,"难页"判据可用确定性输出的异常分:块重叠率/读序回跳),clean 页不碰模型。
 - [ ] **归一**:模型出 region(标题/正文/图/表/页眉脚)+ bbox → 重排该页读序、修正标题/表区域;经 `Enhancer` 边界,source 标 `layout:<model>`,确定性结果仍独立成立。
 - **验收**:`skipped_*` NID 0.12–0.22 → ≥0.5;`normal_4pages` ≥0.7;clean 文档零回归(回归门 ≥0.92 不破);数字 clean 页零模型。
