@@ -79,6 +79,23 @@ pub fn to_markdown(doc: &Document) -> String {
                 md.push_str("\n```\n\n");
                 continue;
             }
+            if block.list_item {
+                // Bullets normalize to "-"; ordinals keep their own numbering
+                // (Markdown renders both as lists).
+                let t = block.text.trim_start();
+                let rendered = match t.chars().next() {
+                    Some('•' | '·' | '‣' | '▪' | '◦' | '○' | '–') => {
+                        format!(
+                            "- {}",
+                            t[t.chars().next().unwrap().len_utf8()..].trim_start()
+                        )
+                    }
+                    _ => t.to_string(),
+                };
+                md.push_str(&rendered);
+                md.push('\n');
+                continue;
+            }
             if block.heading {
                 // Level 1 → "## " (single # reserved for a document title),
                 // deeper levels nest accordingly.

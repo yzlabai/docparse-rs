@@ -45,6 +45,49 @@ fn heading_tag_level(tag: Option<&str>) -> Option<u8> {
     }
 }
 
+/// A leading list marker: bullets (•·‣▪◦○-–) or short ordinal patterns
+/// ("1." "2)" "(3)"). Returns the marker's char length (incl. one trailing
+/// space) when the line reads as a list item.
+fn list_marker_len(text: &str) -> Option<usize> {
+    let t = text.trim_start();
+    let mut chars = t.chars();
+    match chars.next()? {
+        '•' | '·' | '‣' | '▪' | '◦' | '○' | '-' | '–' => {
+            // bullet must be followed by a space + content
+            chars.next().filter(|c| c.is_whitespace())?;
+            chars.next()?; // some content
+            Some(2)
+        }
+        '(' => {
+            let digits: String = chars.by_ref().take_while(|c| c.is_ascii_digit()).collect();
+            // take_while consumed the closing char too; re-check via pattern
+            if digits.is_empty() || digits.len() > 3 {
+                return None;
+            }
+            // expect ")" then space (take_while already consumed ')')
+            let rest = t.strip_prefix('(')?.strip_prefix(digits.as_str())?;
+            let rest = rest.strip_prefix(')')?;
+            rest.strip_prefix(' ')?;
+            Some(digits.len() + 3)
+        }
+        c if c.is_ascii_digit() => {
+            let more: String = chars.by_ref().take_while(|c| c.is_ascii_digit()).collect();
+            if more.len() >= 3 {
+                return None; // years etc.
+            }
+            let ndigits = 1 + more.len();
+            let rest = &t[ndigits..];
+            let rest = rest.strip_prefix(['.', ')'])?;
+            // " 1. Introduction" is a heading pattern, not a list — require
+            // lowercase or non-letter start to reduce collisions? Headings are
+            // classified first and win; remaining numbered lines are items.
+            rest.strip_prefix(' ')?;
+            Some(ndigits + 2)
+        }
+        _ => None,
+    }
+}
+
 /// Roles that are author-declared NOT-headings (paragraphs, figures,
 /// captions, table/list content). Containers like Span/Div carry no signal.
 fn is_nonheading_tag(tag: Option<&str>) -> bool {
@@ -115,6 +158,8 @@ pub struct Line {
     /// True when the line carries an author-declared NOT-heading role
     /// (P/Figure/Caption/…) — vetoes the geometric heading heuristics.
     pub tagged_body: bool,
+    /// True when the line carries a list structure tag (LI/LBody/Lbl).
+    pub tag_list: bool,
 }
 
 /// A body block: a paragraph or a heading, after grouping lines. Carries page +
@@ -126,6 +171,9 @@ pub struct Block {
     /// Heading level (1 = top). 0 on body/code blocks. Tagged PDFs supply it
     /// directly; otherwise document-wide font-size tiers assign it (G9c).
     pub level: u8,
+    /// A list item (bullet/ordinal marker or LI tag) — rendered as a Markdown
+    /// list line and chunked separately (G9b).
+    pub list_item: bool,
     /// A monospace code block (≥2 mono lines); `text` preserves line breaks
     /// and geometric indentation. Renders fenced in Markdown.
     pub code: bool,
@@ -193,6 +241,8 @@ fn reconstruct_lines_inner(chunks: &[&TextChunk]) -> Vec<Line> {
                 line.form = line.form && c.source.as_deref() == Some("form");
                 line.tag_level = line.tag_level.or(heading_tag_level(c.tag.as_deref()));
                 line.tagged_body = line.tagged_body || is_nonheading_tag(c.tag.as_deref());
+                line.tag_list =
+                    line.tag_list || matches!(c.tag.as_deref(), Some("LI" | "LBody" | "Lbl"));
             }
             _ => {
                 if let Some(line) = cur.take() {
@@ -210,6 +260,7 @@ fn reconstruct_lines_inner(chunks: &[&TextChunk]) -> Vec<Line> {
                     form: c.source.as_deref() == Some("form"),
                     tag_level: heading_tag_level(c.tag.as_deref()),
                     tagged_body: is_nonheading_tag(c.tag.as_deref()),
+                    tag_list: matches!(c.tag.as_deref(), Some("LI" | "LBody" | "Lbl")),
                 });
             }
         }
@@ -347,6 +398,7 @@ struct Acc {
     form: bool,
     tag_level: Option<u8>,
     tagged_body: bool,
+    list_item: bool,
     /// Per-line (x0, text) — kept for code blocks, whose reassembly needs
     /// line breaks and geometric indentation instead of paragraph joining.
     raw: Vec<(f32, String)>,
@@ -372,6 +424,7 @@ impl Acc {
             form: line.form,
             tag_level: line.tag_level,
             tagged_body: line.tagged_body,
+            list_item: line.tag_list || list_marker_len(&line.text).is_some(),
             raw: vec![(line.x0, text2)],
         }
     }
@@ -431,17 +484,19 @@ pub fn group_blocks(lines: &[Line], body_size: f32, fill_x: f32) -> Vec<Block> {
             continue;
         }
         let numeric = is_numeric_row(t);
-        let continues = cur.as_ref().is_some_and(|a| {
-            let gap_ok = (a.cy - line.cy) <= a.size.max(1.0) * 1.8;
-            let size_ok = (line.size - a.size).abs() <= a.size * 0.2;
-            // Monospace runs chain into code blocks regardless of the prose
-            // gates: code lines are short (never reach fill_x) and often
-            // numeric — the font itself is the continuation signal (G8a).
-            if a.mono && line.mono {
-                return gap_ok && size_ok;
-            }
-            gap_ok && size_ok && a.x1 >= fill_x && !a.numeric && !numeric
-        });
+        let starts_item = line.tag_list || list_marker_len(t).is_some();
+        let continues = !starts_item
+            && cur.as_ref().is_some_and(|a| {
+                let gap_ok = (a.cy - line.cy) <= a.size.max(1.0) * 1.8;
+                let size_ok = (line.size - a.size).abs() <= a.size * 0.2;
+                // Monospace runs chain into code blocks regardless of the prose
+                // gates: code lines are short (never reach fill_x) and often
+                // numeric — the font itself is the continuation signal (G8a).
+                if a.mono && line.mono {
+                    return gap_ok && size_ok;
+                }
+                gap_ok && size_ok && a.x1 >= fill_x && !a.numeric && !numeric
+            });
 
         match cur.as_mut() {
             Some(a) if continues => a.extend(line, t, numeric),
@@ -545,6 +600,7 @@ fn make_block(a: Acc, body_size: f32) -> Block {
             size: a.size,
             heading: false,
             level: 0,
+            list_item: false,
             code: true,
             page: a.page,
             bbox: BBox {
@@ -577,6 +633,7 @@ fn make_block(a: Acc, body_size: f32) -> Block {
         heading,
         // Tagged level now; geometric tiers are assigned document-wide later.
         level: if heading { a.tag_level.unwrap_or(0) } else { 0 },
+        list_item: a.list_item && !heading,
         code: false,
         page: a.page,
         bbox: BBox {
@@ -731,6 +788,7 @@ mod tests {
             form: false,
             tag_level: None,
             tagged_body: false,
+            tag_list: false,
         }
     }
 
@@ -806,6 +864,7 @@ mod tests {
             form: false,
             tag_level: None,
             tagged_body: false,
+            tag_list: false,
         };
         let lines = vec![
             mk("fn main() {", 100.0, 0.0),
@@ -1006,6 +1065,7 @@ mod level_tests {
             size,
             heading: true,
             level,
+            list_item: false,
             code: false,
             page: 1,
             bbox: BBox {
@@ -1029,5 +1089,47 @@ mod level_tests {
         assign_heading_levels(&mut pages);
         let levels: Vec<u8> = pages[0].iter().map(|b| b.level).collect();
         assert_eq!(levels, vec![1, 2, 3, 3, 2], "tiers cap at 3, tags kept");
+    }
+}
+
+#[cfg(test)]
+mod list_tests {
+    use super::*;
+
+    #[test]
+    fn list_markers_detected() {
+        assert!(list_marker_len("• item text").is_some());
+        assert!(list_marker_len("- dash item").is_some());
+        assert!(list_marker_len("1. numbered").is_some());
+        assert!(list_marker_len("12) also numbered").is_some());
+        assert!(list_marker_len("(3) parenthesized").is_some());
+        assert!(
+            list_marker_len("2024 was a year").is_none(),
+            "years aren't markers"
+        );
+        assert!(list_marker_len("plain sentence").is_none());
+        assert!(list_marker_len("-no space").is_none());
+    }
+
+    #[test]
+    fn marker_lines_become_list_blocks_not_merged() {
+        let mk = |text: &str, cy: f32| Line {
+            text: text.into(),
+            size: 10.0,
+            cy,
+            x0: 0.0,
+            x1: 95.0, // reaches fill — would merge if not for the marker rule
+            page: 1,
+            bold: false,
+            mono: false,
+            form: false,
+            tag_level: None,
+            tagged_body: false,
+            tag_list: false,
+        };
+        let lines = vec![mk("• first item", 100.0), mk("• second item", 88.0)];
+        let blocks = group_blocks(&lines, 10.0, 90.0);
+        assert_eq!(blocks.len(), 2, "each marker starts its own block");
+        assert!(blocks.iter().all(|b| b.list_item && !b.heading));
     }
 }

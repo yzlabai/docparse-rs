@@ -19,6 +19,8 @@ pub enum ChunkKind {
     Table,
     /// A monospace code block (line breaks + indentation preserved).
     Code,
+    /// A list item (bullet/ordinal marker or LI tag).
+    ListItem,
 }
 
 /// A retrieval chunk with a precise source anchor.
@@ -134,6 +136,22 @@ pub fn chunk_document_with(doc: &Document, opts: ChunkOptions) -> Vec<Chunk> {
 
         for item in items {
             match item {
+                Item::Block(b) if b.list_item => {
+                    // List items stay one chunk each (G9b) — never folded
+                    // into prose paragraphs.
+                    flush(&mut buf, &mut chunks, &mut next_id);
+                    let path: Vec<String> = headings.iter().map(|(_, t)| t.clone()).collect();
+                    chunks.push(Chunk {
+                        id: next_id,
+                        kind: ChunkKind::ListItem,
+                        char_len: b.text.chars().count(),
+                        text: b.text.clone(),
+                        page: b.page,
+                        bbox: b.bbox,
+                        heading_path: path,
+                    });
+                    next_id += 1;
+                }
                 Item::Block(b) if b.code => {
                     // Code blocks are self-contained chunks — never merged
                     // into prose paragraphs (G8a).
