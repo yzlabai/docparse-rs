@@ -199,6 +199,36 @@ impl UniRec {
     }
 }
 
+/// Autoregressive degeneration check: out-of-domain input (e.g. Korean fed
+/// to this Chinese/English model) collapses into repetition loops — long
+/// stretches of one phrase. Detect a substring of ≥6 chars repeated ≥4
+/// times consecutively; callers must reject such output (hallucinated
+/// volume defeats char-count gates).
+pub fn looks_degenerate(text: &str) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    let n = chars.len();
+    if n < 48 {
+        return false;
+    }
+    for period in 6..=64usize {
+        if period * 4 > n {
+            break;
+        }
+        let mut run = 0usize; // consecutive positions where s[i] == s[i+period]
+        for i in 0..n - period {
+            if chars[i] == chars[i + period] {
+                run += 1;
+                if run >= period * 3 {
+                    return true; // ≥4 consecutive copies of a period-length phrase
+                }
+            } else {
+                run = 0;
+            }
+        }
+    }
+    false
+}
+
 /// Aspect-preserving fit into [`MAX_SIDE`], floored to /64 alignment (≥64).
 fn target_size(w: usize, h: usize) -> (usize, usize) {
     let (max_w, max_h) = MAX_SIDE;
@@ -239,6 +269,16 @@ fn collapse_runs(s: &str, c: char, keep: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn degeneration_detector() {
+        let looping = "玉晶尼库仑硅产品最高层2.5-2.6元/片/".repeat(8);
+        assert!(looks_degenerate(&looping));
+        assert!(!looks_degenerate(
+            "本公司成立于2020年，是一家专注于人工智能技术研发的高科技企业。公司总部位于北京，在上海、深圳设有分支机构。主要业务领域包括自然语言处理、计算机视觉与机器学习平台。"
+        ));
+        assert!(!looks_degenerate("short"));
+    }
 
     #[test]
     fn target_size_matches_reference() {

@@ -149,6 +149,14 @@ struct Cli {
     #[arg(long, value_name = "DIR")]
     formula_model: Option<PathBuf>,
 
+    /// Re-recognize whole pages with the embedded UniRec model (PDF only):
+    /// layout regions (DocLayout-YOLO) read in order, replacing the page's
+    /// text at region-level positions. The route for design/CJK layouts the
+    /// deterministic geometry can't order — opt-in, line-level positions are
+    /// traded away (chunks carry region bboxes). Value: UniRec model dir.
+    #[arg(long, value_name = "DIR")]
+    transcribe_model: Option<PathBuf>,
+
     /// Embed image payloads as base64 in JSON output (data_base64 +
     /// data_media_type on each image element) — ODL's "embedded" mode.
     /// Decodes all embedded images ≥16px a side (PDF) or the input image.
@@ -607,6 +615,26 @@ fn main() -> anyhow::Result<()> {
                 &model,
             )?;
             eprintln!("{{\"formula_model_replaced\": {n}}}");
+        }
+    }
+
+    if let Some(dir) = &cli.transcribe_model {
+        let is_pdf = input
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("pdf"))
+            .unwrap_or(false);
+        if !is_pdf {
+            eprintln!("--transcribe-model currently supports PDF inputs only; skipped");
+        } else {
+            let model = docparse_ocr::unirec::UniRec::new(dir)?;
+            let n = docparse_ocr::transcribe::transcribe_pages(
+                &mut doc,
+                std::fs::read(&input)?,
+                &cli.layout_model,
+                &model,
+            )?;
+            eprintln!("{{\"transcribed_pages\": {n}}}");
         }
     }
 

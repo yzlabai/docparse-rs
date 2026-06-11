@@ -20,6 +20,7 @@
 pub mod formula;
 pub mod layout;
 pub mod table_model;
+pub mod transcribe;
 pub mod unirec;
 
 use anyhow::{Context, Result};

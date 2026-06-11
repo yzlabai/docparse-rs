@@ -104,7 +104,8 @@ pub fn enhance_formulas(
 /// other content type the model recognized instead (a table, a paragraph).
 fn usable_latex(text: &str) -> Option<String> {
     let t = text.trim();
-    if t.is_empty() || t.len() > 2000 || t.contains("<table") {
+    if t.is_empty() || t.len() > 2000 || t.contains("<table") || crate::unirec::looks_degenerate(t)
+    {
         return None;
     }
     // A formula answer should look like math, not prose: require at least

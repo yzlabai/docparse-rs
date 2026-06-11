@@ -54,8 +54,8 @@
 - [x] **R2 · UniRec 推理管线 ✅**(2026-06-11,ocr/unirec.rs):按计划实现;实测 pg9 表 3.4s 出完美 HTML(含 span),纯 Rust 全程(双线性缩放足够,无需 bicubic)。
 - [x] **R3 · 表任务接线 ✅**(2026-06-11,ocr/table_model.rs):按计划实现,含 rowspan 悬挂网格的正确展开(pending 机制);6 个新单测(含 pg9 真实形状)。
 - [x] **验收**:pg9 端到端 10×8 语义正确(rowspan/colspan 准确展开)✅;默认路径零变化(记分牌逐字不变)✅;单测齐 ✅。⚠️ **诚实记录**:flag-on 的一致度 TEDS 反而降(pg9 0.804→0.39、2206 0.421→0.115)——ODL 与 Docling 真值都用**压扁口径**(子行并、跨格合写),模型的忠实结构与之约定冲突,"一致度≠准确度"再添一例(LaTeX 源 \multirow 证实模型才是对的)。定位同 --layout:产品质量增强、手动 opt-in、不进记分牌。真正出口是 rowspan/colspan 语义入 IR(远期)。
-- 后续:公式→LaTeX ✅(2026-06-11,`--formula-model`,见 G8c)、**rowspan/colspan 语义入 IR ✅**(2026-06-11,[devlog](../devlogs/2026-06-11-spans-and-embedded-images.md):`Cell.row_span/col_span/merged`,IR 0.7.0——锚格带跨度、覆盖位标 merged,网格平铺口径不破,eval/默认输出零变化;模型路径填真实 span,确定性路径恒 1×1)、高质量 OCR 档(待设计)。
-- [ ] **G3b(确定性兜底)**:保留原描述,优先级降(模型路径已通)。
+- 后续:公式→LaTeX ✅(2026-06-11,`--formula-model`,见 G8c)、**高质量 OCR 档定案**(2026-06-11:即 `--transcribe-model`——中英扫描件标点/结构优于 PP-OCR,代价是行级 bbox 降为区域级;要行级定位用 `--ocr`,两档并存各取所需)、**rowspan/colspan 语义入 IR ✅**(2026-06-11,[devlog](../devlogs/2026-06-11-spans-and-embedded-images.md):`Cell.row_span/col_span/merged`,IR 0.7.0——锚格带跨度、覆盖位标 merged,网格平铺口径不破,eval/默认输出零变化;模型路径填真实 span,确定性路径恒 1×1)、高质量 OCR 档(待设计)。
+- [ ] **G3b(确定性兜底)**:保留原描述,优先级降(模型路径已通)。**行内公式**同此:无区域信号(版面模型只出 display 公式区),需行内检测器另立项——显式缓办,理由记录。
 
 ### G4 · OCR 长尾 — *模块 8 续*
 - [x] **区域级 OCR ✅**(2026-06-10):`MixedTextAndScan` flag 路由混合页,OCR 结果与数字文本空间去重(数字层赢);合成混合页端到端验收。
@@ -96,7 +96,7 @@
   - [x] **公式→LaTeX ✅**(2026-06-11,[devlog](../devlogs/2026-06-11-formula-model.md)):`--formula-model`——DocLayout-YOLO 检 `isolate_formula` 区(class 8)→ UniRec 出 LaTeX → 替换区域内字形汤(`source: "formula:unirec-0.1b"`、tag Formula)。验收样例:基线 "2a + 8 = 12"(上标漂移)→ `\[a^{2}+8=12\]` 正确;LaTeX 防劣化门(须含数学记号、拒表格/散文);默认路径零变化。PP-FormulaNet 不再需要;
   - 图片分类:小 CNN 分类器(图表/照片/示意图)× tract spike;
   - ⚠️ **身份约束决策点**:这些模型吃**区域图**。扫描页区域可从位图裁剪(不破身份);**born-digital 的公式/图是矢量,喂模型必须合成栅格**——是否为"enhancer-only 合成栅格"开例外(主流程仍不渲染),**需用户拍板**;不开例外则 born-digital 区域走 G8b HTTP。
-  - [ ] **G8d 整页 VLM**:**主路径 = G8b 服务化**(vLLM/Ollama 跑 SmolDocling/Qwen2.5-VL 级模型,整页转写难例扫描页)——服务侧天然有 GPU/量化/批处理,优于本地内嵌;`candle` 内嵌 spike 降为**远期可选**(离线单机场景才值得)。
+  - [~] **G8d 整页转写**:**内嵌增量 ✅**(2026-06-11,[devlog](../devlogs/2026-06-11-transcribe-model.md)):`--transcribe-model`——YOLO 分区+XY-cut 区序+逐区 UniRec,替换文本层(区域级定位,opt-in)。**域边界实测**:中英域内质量优于 PP-OCR(标点更准);**韩文(评测集的 CJK 缺口恰全是韩文)域外**——幻觉复读循环被新增的**退化守卫**(`looks_degenerate`,周期重复检测,表/公式路径同享)全量拦截,旗标域外安全无害化(NID 逐字不变)。⚠️ 结论:评测集的 CJK 缺口需要韩文能力——仍属 VLM 服务域(Qwen2.5-VL 级,候 Ollama)或换多语种小模型;UniRec 路线对此明确不适用,记录在案。
 - **验收**:G8a 代码块在 `code_and_formula` 样例正确标注;G8b 对 Ollama 与 vLLM 各端到端一例(图片描述/图表→表格),数字纯文本页零外呼;G8c 以 spike 结论定去留;G8d 以服务化为主、内嵌 spike 远期。
 
 ### G9 · 对齐 ODL 结构层:Tagged PDF / 列表 / 标题层级 / 表覆盖 — *模块 2、4* · 确定性自研

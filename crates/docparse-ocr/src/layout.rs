@@ -119,11 +119,9 @@ impl LayoutModel {
 /// element list, or `None` when there is nothing useful to do (few regions).
 /// Regions are ordered by the core XY-cut over their boxes — the model picks
 /// the regions, deterministic geometry picks their order.
-pub fn assign_groups(page: &Page, regions: &[Region]) -> Option<Vec<Element>> {
-    if regions.len() < MIN_REGIONS {
-        return None;
-    }
-    // Order regions with the same XY-cut used for text (synthetic chunks).
+/// Reading rank per region (`rank[i]` = position of `regions[i]`), computed
+/// with the same XY-cut used for text, run over synthetic region chunks.
+pub(crate) fn region_rank(page_no: usize, regions: &[Region]) -> Vec<u32> {
     let synthetic: Vec<TextChunk> = regions
         .iter()
         .map(|r| TextChunk {
@@ -131,7 +129,7 @@ pub fn assign_groups(page: &Page, regions: &[Region]) -> Option<Vec<Element>> {
             bbox: r.bbox,
             font_size: (r.bbox.y1 - r.bbox.y0).max(1.0),
             font: None,
-            page: page.number,
+            page: page_no,
             confidence: r.score,
             bold: false,
             hidden: false,
@@ -142,11 +140,18 @@ pub fn assign_groups(page: &Page, regions: &[Region]) -> Option<Vec<Element>> {
         .collect();
     let refs: Vec<&TextChunk> = synthetic.iter().collect();
     let order = reading_order(&refs);
-    // rank[region_index] = reading position
     let mut rank = vec![0u32; regions.len()];
     for (pos, &idx) in order.iter().enumerate() {
         rank[idx] = pos as u32;
     }
+    rank
+}
+
+pub fn assign_groups(page: &Page, regions: &[Region]) -> Option<Vec<Element>> {
+    if regions.len() < MIN_REGIONS {
+        return None;
+    }
+    let rank = region_rank(page.number, regions);
 
     let mut covered = 0usize;
     let mut total = 0usize;

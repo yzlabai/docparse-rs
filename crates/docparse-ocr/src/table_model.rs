@@ -47,6 +47,12 @@ pub fn refine_tables(doc: &mut Document, pdf_bytes: Vec<u8>, model: &UniRec) -> 
                 continue;
             };
             match model.recognize(&crop, cw, ch, MAX_TOKENS) {
+                Ok(text) if crate::unirec::looks_degenerate(&text) => {
+                    eprintln!(
+                        "table-model: page {} degenerate answer; keeping deterministic rows",
+                        page.number
+                    );
+                }
                 Ok(text) => {
                     let Some(grid) = parse_html_table(&text) else {
                         eprintln!(
