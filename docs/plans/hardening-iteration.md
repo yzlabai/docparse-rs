@@ -36,13 +36,13 @@
 - [x] **方向归一化语义**(devlog 记决策):纯扫描页检测出旋转 → 输出归一化到内容正立坐标系(Docling 同口径,读序/引用指正立页;90/270 页尺寸互换),为此 `Enhancer::enhance_page` 改为返回 `Page`(可改页几何);混排页保持 viewer-faithful。已知边界:混排+旋转页的竖排 chunk 在 text 渲染层不可见(JSON 仍在),记 H3/H4 关联观察;
 - **验收 ✅(修订口径)**:`ocr_test_rotated_{90,180,270}` 相似度 **1.000/1.000/1.000**(≥0.95 门);自造像素旋转四方向(pixrot_0/90/180/270,无 /Rotate)全部逐字正确;零回归——未旋转 ocr_test ✓、三件套 ✓、双记分牌与基线一致 ✓、H1 CCITT/JBIG2 样例 ✓、clippy 0、全单测 135 绿(+2 旋转辅助、+1 /Rotate 解释器);devlog [2026-06-11-h2-cls-rotation.md](../devlogs/2026-06-11-h2-cls-rotation.md)。
 
-### H3 · 读序异常分 + `--layout` 自动路由最后一试 — *模块 3/7 / G2 收口*
+### H3 · 读序异常分 + `--layout` 自动路由最后一试 — *模块 3/7 / G2 收口* ✅ 2026-06-11
 三个几何判据已实测失败(行填充率/XY-cut 歧义/左缘覆盖,均有 devlog)。最后一个在案候选:**确定性输出的读序异常分**(块重叠率/读序回跳次数)——它同时补上 quality 模块(M7)留空的 reading-order 异常项。
 
-- [ ] quality.rs:新增 `reading_order_anomaly`(页内块 bbox 重叠率 + 读序 y 回跳计数,纯几何、便宜);
-- [ ] 用 amt/normal_4pages(--layout 赢)vs 2203/2305(--layout 输)验证判据可分性;
-- [ ] 可分 → `--layout auto` 档按页自动;不可分 → **关闭确定性路由路线**,文档化"--layout 永久手动 + 页型判官归外接服务(按需)";
-- **验收**:二选一明确落地;记分牌默认路径零回归。
+- [x] quality.rs:新增 `reading_order_anomaly`(读序相邻块 y 回跳率,纯几何、便宜,用输出同款 reading_order);
+- [x] Python 探针在 amt/normal_4pages(赢)vs 2203/2305(输)验证可分性——**先探针后落码**(G2 死代码教训);
+- [x] **不可分,且方向反**(amt 赢=0.000 与 2305 输=0.000 无法区分,2203 输反而最高 0.124)→ **关闭确定性路由路线**,`--layout` 永久文档级手动 opt-in、页型判官归外接服务(VLM/小分类器,按需);
+- **验收 ✅**:二选一明确落地(关闭确定性路由);`reading_order_anomaly` 作为诊断信号进 `--profile`(非 auto 开关,字段 doc 写明)补 M7 留空项;记分牌默认路径零回归;136 单测绿(+1 不变量:clean 页恒 0 不误报)。devlog [2026-06-11-h3-reading-order-anomaly.md](../devlogs/2026-06-11-h3-reading-order-anomaly.md)。
 
 ### H4 · 双栏左列段落重排(fill_x 修复)— *模块 3 / M3 老债*
 `group_blocks` 的续行条件要求前行触达 `fill_x`(页宽口径),双栏左列永远不满足 → 左列逐行成块、不聚段。

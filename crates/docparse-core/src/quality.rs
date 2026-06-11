@@ -305,6 +305,17 @@ pub struct PageProfile {
     /// Text chunks produced by an enhancer (`source` set) — 0 on a pure
     /// deterministic parse.
     pub enhanced_chunks: usize,
+    /// Reading-order anomaly: fraction of reading-order-adjacent visible text
+    /// blocks where the next block starts ABOVE the current (a top-down-flow
+    /// violation that survives XY-cut), normalized by block count. Cheap,
+    /// purely geometric, in [0,1]. NOTE (H3, 2026-06-11): evaluated as an
+    /// auto-`--layout` routing criterion and found NOT separable (clean
+    /// two-column pages score 0.0 just like clean single-column; a sub-word
+    /// fragmented page scores highest despite needing no layout model) — it is
+    /// kept as an observable diagnostic / feature for an external page-type
+    /// judge, NOT wired to any automatic decision. See devlog.
+    #[serde(default)]
+    pub reading_order_anomaly: f32,
 }
 
 /// A page-covering raster at or above this share of the page marks the page
@@ -337,6 +348,7 @@ pub fn profile_page(page: &Page) -> PageProfile {
             Element::Table(_) => tables += 1,
         }
     }
+    let reading_order_anomaly = reading_order_anomaly(page);
     let covered = image_coverage >= PAGE_COVERING;
     let kind = match (text_chars > 0, covered, image_count) {
         (true, true, _) => PageKind::Mixed,
@@ -354,7 +366,40 @@ pub fn profile_page(page: &Page) -> PageProfile {
         image_coverage,
         tables,
         enhanced_chunks,
+        reading_order_anomaly,
     }
+}
+
+/// Fraction of reading-order-adjacent visible text blocks that flow upward
+/// (top-down violation surviving XY-cut), normalized by block count. Uses the
+/// same `reading_order` the output path uses, so it measures the anomaly a
+/// reader would actually see. Cheap and purely geometric; see the
+/// [`PageProfile::reading_order_anomaly`] note on why it is diagnostic-only.
+fn reading_order_anomaly(page: &Page) -> f32 {
+    let blocks: Vec<&crate::ir::TextChunk> = page
+        .elements
+        .iter()
+        .filter_map(|e| match e {
+            Element::Text(t) if !t.hidden => Some(t),
+            _ => None,
+        })
+        .collect();
+    if blocks.len() < 3 {
+        return 0.0;
+    }
+    let order = crate::reading_order::reading_order(&blocks);
+    let mut heights: Vec<f32> = blocks.iter().map(|b| b.bbox.y1 - b.bbox.y0).collect();
+    heights.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median_h = heights[heights.len() / 2].max(1.0);
+    let mut back = 0usize;
+    for w in order.windows(2) {
+        // y1 is the block top (PDF y-up); reading should move downward, so a
+        // higher next-top by more than half a line is a backward jump.
+        if blocks[w[1]].bbox.y1 > blocks[w[0]].bbox.y1 + 0.5 * median_h {
+            back += 1;
+        }
+    }
+    back as f32 / (order.len() - 1) as f32
 }
 
 /// Profile every page of a document.
@@ -456,5 +501,40 @@ mod profile_tests {
         assert!((p.image_coverage - 0.8).abs() < 1e-5);
         assert_eq!(p.enhanced_chunks, 1);
         assert_eq!(p.kind, PageKind::Mixed);
+    }
+
+    fn block(y_top: f32) -> Element {
+        // A 10pt-tall, full-width line at the given top (PDF y-up).
+        Element::Text(TextChunk {
+            text: "line".into(),
+            bbox: BBox { x0: 0.0, y0: y_top - 10.0, x1: 100.0, y1: y_top },
+            font_size: 10.0,
+            font: None,
+            page: 1,
+            confidence: 1.0,
+            bold: false,
+            hidden: false,
+            source: None,
+            group: None,
+            tag: None,
+        })
+    }
+
+    #[test]
+    fn reading_order_anomaly_zero_on_clean_pages() {
+        // The load-bearing invariant: a clean top-down page must never be
+        // flagged anomalous (no false positives — that was the whole reason
+        // the auto-routing criterion was rejected, see the field doc). The
+        // anomaly is computed on reading_order's OWN output, so any clean
+        // page — single OR multi-column — that XY-cut linearizes correctly
+        // scores exactly 0; real fragmented pages score small positives
+        // (e.g. arXiv 2203 ≈ 0.03), evidenced in the H3 devlog, not here.
+        let p = profile_page(&page(vec![block(90.0), block(70.0), block(50.0), block(30.0)]));
+        assert_eq!(p.reading_order_anomaly, 0.0);
+        // Fewer than 3 blocks: undefined → 0.
+        assert_eq!(
+            profile_page(&page(vec![block(90.0), block(70.0)])).reading_order_anomaly,
+            0.0
+        );
     }
 }
