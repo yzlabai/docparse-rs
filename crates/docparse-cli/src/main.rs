@@ -136,6 +136,15 @@ struct Cli {
     #[arg(long)]
     vlm_api_key: Option<String>,
 
+    /// Re-extract detected tables' structure with the embedded UniRec-0.1B
+    /// model (renders each table region on demand; PDF only). Resolves
+    /// merged cells / multi-row headers in-process — no service needed.
+    /// Value: model dir holding encoder/decoder ONNX + tokenizer mapping.
+    /// Replaced tables carry source "table:unirec-0.1b"; failures keep the
+    /// deterministic grid.
+    #[arg(long, value_name = "DIR")]
+    table_model: Option<PathBuf>,
+
     /// Export embedded raster images (≥16px a side) to this directory as
     /// JPEG/PNG files; JSON image elements gain a "file" path and Markdown
     /// references them (PDF only). Mirrors ODL's external image output.
@@ -307,6 +316,22 @@ fn main() -> anyhow::Result<()> {
             eprintln!("{{\"layout_enhanced_pages\": {n}}}");
         } else {
             eprintln!("--layout currently supports PDF inputs only; skipped");
+        }
+    }
+
+    if let Some(dir) = &cli.table_model {
+        let is_pdf = input
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("pdf"))
+            .unwrap_or(false);
+        if !is_pdf {
+            eprintln!("--table-model currently supports PDF inputs only; skipped");
+        } else {
+            let model = docparse_ocr::unirec::UniRec::new(dir)?;
+            let n =
+                docparse_ocr::table_model::refine_tables(&mut doc, std::fs::read(&input)?, &model)?;
+            eprintln!("{{\"table_model_refined\": {n}}}");
         }
     }
 

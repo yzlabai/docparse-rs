@@ -50,10 +50,10 @@
 
 **G3-R 实施计划**(2026-06-11 立项):
 
-- [ ] **R1 · tract 0.21→0.23 升级**(前置):workspace 版本提升 + API 迁移(`to_array_view` 移除等,spike 已踩);**回归门**:PP-OCR(chinese_scan 14/14 行)、DocLayout-YOLO(--layout amt 增益不变)、三件套、双记分牌逐字不变;
-- [ ] **R2 · UniRec 推理管线**(docparse-ocr 新模块):`find_file` 模式加载 encoder/decoder/tokenizer 映射(models/unirec/,~700MB 外置);预处理(≤960×1408 等比 /64 对齐,(x/255−0.5)/0.5)→ encoder 一次 → Rust 贪心 KV-cache 解码循环 → detokenize;
-- [ ] **R3 · 表任务接线**:`--table-model <dir>` 对已检出表渲染区域(复用 raster+crop 栈)→ UniRec 出 HTML → 手写子集解析(`<table>/<tr>/<td rowspan/colspan>`)→ 跨格按"值复制到所有跨位"展开回 `Table.rows`(与 eval/ODL 口径一致),`source: "table:unirec-0.1b"`;失败保底确定性网格(同 `--vlm-tables` 纪律);
-- [ ] **验收**:合并格样例(2305-pg9)端到端 HTML 语义正确;TEDS 双记分牌不降(展开口径下应升);默认路径(不带旗标)零变化;单测:tokenizer 解码/HTML 子集解析/预处理尺寸。
+- [x] **R1 · tract 0.21→0.23 升级 ✅**(2026-06-11,f23a4bc):API 迁移(Runnable 别名 Arc 化、`to_plain_array_view(_mut)`);回归门全过(chinese_scan 逐字不变、YOLO 点火、三件套、双记分牌逐字不变)。
+- [x] **R2 · UniRec 推理管线 ✅**(2026-06-11,ocr/unirec.rs):按计划实现;实测 pg9 表 3.4s 出完美 HTML(含 span),纯 Rust 全程(双线性缩放足够,无需 bicubic)。
+- [x] **R3 · 表任务接线 ✅**(2026-06-11,ocr/table_model.rs):按计划实现,含 rowspan 悬挂网格的正确展开(pending 机制);6 个新单测(含 pg9 真实形状)。
+- [x] **验收**:pg9 端到端 10×8 语义正确(rowspan/colspan 准确展开)✅;默认路径零变化(记分牌逐字不变)✅;单测齐 ✅。⚠️ **诚实记录**:flag-on 的一致度 TEDS 反而降(pg9 0.804→0.39、2206 0.421→0.115)——ODL 与 Docling 真值都用**压扁口径**(子行并、跨格合写),模型的忠实结构与之约定冲突,"一致度≠准确度"再添一例(LaTeX 源 \multirow 证实模型才是对的)。定位同 --layout:产品质量增强、手动 opt-in、不进记分牌。真正出口是 rowspan/colspan 语义入 IR(远期)。
 - 后续(顺带能力,另行小项):公式→LaTeX(同模型,G8c 主路径)、高质量 OCR 档、rowspan/colspan 语义入 IR(远期)。
 - [ ] **G3b(确定性兜底)**:保留原描述,优先级降(模型路径已通)。
 

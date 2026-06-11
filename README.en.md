@@ -40,6 +40,7 @@ cargo build --release
 ./target/release/docparse hard.pdf --layout        # layout-model macro reading order (needs models/layout, opt-in)
 ./target/release/docparse doc.pdf --vlm-describe --vlm-url http://127.0.0.1:11434 --vlm-model qwen2.5vl   # VLM figure captions
 ./target/release/docparse doc.pdf --vlm-tables --vlm-url http://127.0.0.1:11434 --vlm-model qwen2.5vl     # VLM table re-extraction (merged cells / multi-row headers); failures keep the deterministic grid
+./target/release/docparse doc.pdf --table-model models/unirec   # embedded UniRec-0.1B table re-extraction (merged cells), in-process, no service
 ./target/release/docparse doc.pdf --image-dir imgs/   # export embedded images (JPEG/PNG); JSON gains "file", Markdown gains ![]() refs
 ./target/release/docparse input.pdf --quality --profile --route-plan   # quality / per-page profile / routing (JSON on stderr)
 
@@ -60,7 +61,7 @@ curl -F "file=@doc.pdf" "http://127.0.0.1:8642/parse?format=chunks&ocr=true"
 #   docs = DocparseLoader("paper.pdf").load()   # one Document per chunk, page+bbox metadata
 ```
 
-OCR models (optional, three files, ~16 MB, Apache-2.0) go in `models/ppocr/`: `ch_PP-OCRv4_det_infer.onnx` + `ch_PP-OCRv4_rec_infer.onnx` (HuggingFace `SWHL/RapidOCR`) + `ppocr_keys_v1.txt` (PaddleOCR repo).
+OCR models (optional, three files, ~16 MB, Apache-2.0) go in `models/ppocr/`: `ch_PP-OCRv4_det_infer.onnx` + `ch_PP-OCRv4_rec_infer.onnx` (HuggingFace `SWHL/RapidOCR`) + `ppocr_keys_v1.txt` (PaddleOCR repo). Table-structure model (optional, ~700 MB, Apache-2.0) goes in `models/unirec/`: `huggingface-cli download topdu/unirec_0_1b_onnx --local-dir models/unirec`.
 
 ```bash
 cargo test          # 116 unit tests (CMap / matrix / XY-cut / tables / chunking / MCP / limits / OCR decode / format backends …)

@@ -40,6 +40,7 @@ cargo build --release
 ./target/release/docparse hard.pdf --layout        # 版面模型重排宏观读序（需 models/layout，opt-in）
 ./target/release/docparse doc.pdf --vlm-describe --vlm-url http://127.0.0.1:11434 --vlm-model qwen2.5vl   # VLM 图片描述
 ./target/release/docparse doc.pdf --vlm-tables --vlm-url http://127.0.0.1:11434 --vlm-model qwen2.5vl     # VLM 重抽表结构（合并格/多级表头），失败保底确定性网格
+./target/release/docparse doc.pdf --table-model models/unirec   # 内嵌 UniRec-0.1B 重抽表结构（合并格/多级表头），进程内无服务
 ./target/release/docparse doc.pdf --image-dir imgs/   # 导出嵌入图片（JPEG/PNG），JSON 带 file、Markdown 带 ![]() 引用
 ./target/release/docparse input.pdf --quality --profile --route-plan   # 质量分/页级画像/路由计划（stderr JSON）
 
@@ -60,7 +61,7 @@ curl -F "file=@doc.pdf" "http://127.0.0.1:8642/parse?format=chunks&ocr=true"
 #   docs = DocparseLoader("paper.pdf").load()   # 每 chunk 一个 Document，metadata 带 page+bbox
 ```
 
-OCR 模型（可选，三个文件 ~16MB，Apache-2.0）放 `models/ppocr/`：`ch_PP-OCRv4_det_infer.onnx` + `ch_PP-OCRv4_rec_infer.onnx`（HuggingFace `SWHL/RapidOCR`）+ `ppocr_keys_v1.txt`（PaddleOCR 仓库）。
+OCR 模型（可选，三个文件 ~16MB，Apache-2.0）放 `models/ppocr/`：`ch_PP-OCRv4_det_infer.onnx` + `ch_PP-OCRv4_rec_infer.onnx`（HuggingFace `SWHL/RapidOCR`）+ `ppocr_keys_v1.txt`（PaddleOCR 仓库）。表结构模型（可选，~700MB，Apache-2.0）放 `models/unirec/`：`huggingface-cli download topdu/unirec_0_1b_onnx --local-dir models/unirec`。
 
 ```bash
 cargo test          # 116 单测（CMap/矩阵/XY-cut/表格/切块/MCP/限额/OCR 解码/各格式后端…）

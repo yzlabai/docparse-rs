@@ -18,6 +18,8 @@
 //! (cls) model — upright scans assumed.
 
 pub mod layout;
+pub mod table_model;
+pub mod unirec;
 
 use anyhow::{Context, Result};
 use docparse_core::enhance::{Capability, Enhancer};
@@ -355,7 +357,12 @@ fn sanitize_dims(bytes: &[u8]) -> Vec<u8> {
 
 /// Resolve a model file: exact known names first, then any file whose name
 /// contains `needle` with the given extension (alphabetically first match).
-fn find_file(dir: &Path, exact: &[&str], needle: &str, ext: &str) -> Result<std::path::PathBuf> {
+pub(crate) fn find_file(
+    dir: &Path,
+    exact: &[&str],
+    needle: &str,
+    ext: &str,
+) -> Result<std::path::PathBuf> {
     for name in exact {
         let p = dir.join(name);
         if p.exists() {
@@ -394,7 +401,7 @@ fn replace_inplace(buf: &mut [u8], pat: &[u8], rep: &[u8]) {
 }
 
 /// Bilinear RGB resize.
-fn resize_bilinear(src: &[u8], sw: usize, sh: usize, dw: usize, dh: usize) -> Vec<u8> {
+pub(crate) fn resize_bilinear(src: &[u8], sw: usize, sh: usize, dw: usize, dh: usize) -> Vec<u8> {
     let mut out = vec![0u8; dw * dh * 3];
     if sw == 0 || sh == 0 || dw == 0 || dh == 0 {
         return out;

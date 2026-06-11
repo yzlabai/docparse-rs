@@ -737,6 +737,7 @@ dependencies = [
  "anyhow",
  "docparse-core",
  "docparse-raster",
+ "serde_json",
  "tract-linalg",
  "tract-onnx",
  "zune-jpeg 0.4.21",
