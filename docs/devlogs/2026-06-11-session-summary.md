@@ -1,0 +1,33 @@
+# 2026-06-11 · 会话总结:G9 收官后的八连推 —— 格式 11、生态接入、压测+fuzz 全绿
+
+## TL;DR
+
+昨日 G9d 收官(TEDS 0.419)之后,本日连续落地 **8 个推送、6 个里程碑**,Phase 4 的可自主推进项全部清空:
+
+| 提交 | 里程碑 | 一句话 |
+|---|---|---|
+| e35f930 | 图片导出 `--image-dir` | ODL external 模式平齐;JPEG 直通/位图 PNG,JSON `file` + Markdown `![]()` |
+| 93d378c | SRT/WebVTT 字幕(G1b) | 每 cue 一段带时间戳;**顺带修 synth 段距 bug**(全部合成后端段落被错并) |
+| eb4b0e4 | G7 压测 | 1847 输入(647 清洁+1200 变异)**零 panic**,验收门过 |
+| 0602070 | `--vlm-tables`(G8b) | VLM 重抽已检出表结构,mock 全链路过;失败保底确定性网格;IR 增 `Table.source` |
+| 1537e2d | LaTeX 后端(G1b) | 7 份真实 arXiv 源码全过;**顺带开 synth 列表语义通道**(`LI` 标签防 "1. 项" 误判标题) |
+| abf3a42 | G6 Python 客户端 + loader | 零依赖双传输;LangChain **五行验收实测过**(真 langchain-core,PDF→Documents 带 page+bbox) |
+| b900b6d | 依赖批次(用户一次批四个) | EML(mail-parser)/ 图片即文档(zune-png,**扫描件往返验收**)/ 编码探测(Shift-JIS CSV 修复)/ fuzz 四目标 |
+| f68ca20 | fuzz 烟雾 | nightly+ASan,四目标合计 **~1020 万次执行零崩溃**(pdf 全管线 cov 9167) |
+
+体量变化:格式数 **3→11**(PDF/DOCX/HTML/XLSX/PPTX/MD/CSV/SRT·VTT/LaTeX/EML/PNG·JPEG),**16 个 crate**,116 单测,clippy 0;`clients/python` 新增生态面。记分牌全程零回归(vs ODL 0.792/0.685/0.419;vs Docling 0.822/0.643/0.474)。
+
+## 模式与经验(本日新增)
+
+1. **横向 bug 的两次"顺带捕获"都来自新后端 e2e**:字幕暴露 synth 段距(影响 docx/html/md 多日)、LaTeX 暴露列表/标题几何歧义(语义通道正解)。新格式不只是广度——它是对共享层的免费测试矩阵。
+2. **管道退出码再次掩盖失败**:fuzz "EXIT=0" 实为 tail 的退出码,构建失败被吞;前台重跑才暴露。`cmd | tail; echo $?` 不可信,要 `PIPESTATUS`/前台验证。
+3. **rustup 空壳工具链**:CDN TLS 连续中断后,rustup 组件登记"已安装"但文件缺失(`Missing manifest`/`can't find crate for core`),`component remove + add` 强制落盘才修复——环境损坏时别信元数据,验文件。
+4. **"因编码拒收真实内容"等于换名的数据丢失**:textio 探测解码(U+FFFD 可见不静默)是对"不静默吞数据"红线的正向延伸。
+5. **复用优先**:图片即文档零新管线(全幅 ImageChunk 搭 N3 OCR 路由);`--vlm-tables` 零新协议(G8b 栈);Python 客户端零依赖(subprocess+urllib)。
+
+## 剩余池(全部候外部输入)
+
+- **发布**:PyPI(docparse-client)/ crates.io / MCP registry——候账号与署名决策;
+- **真实服务验收**:`--vlm-describe`/`--vlm-tables` 对 Ollama(qwen2.5-vl 级)实测回填;
+- **G7 加强**:fuzz 24h 长跑(排期)、arXiv 千份原版口径(网络/存储);
+- **按需立项**:AsciiDoc、JATS/METS-ALTO、RTL(G5)、MCP/REST 新能力透传(--layout/--vlm-*/图片 base64 模式)。

@@ -8,7 +8,7 @@ A fast, pure-Rust **multi-format document parsing system**: extracts **positione
 
 ## Highlights
 
-- **23.5 MB single binary, zero runtime dependencies** (incl. two pure-Rust inference stacks + on-demand renderer): <10 ms warm parse, 700 pages/s, byte-identical output for identical input;
+- **26.5 MB single binary, zero runtime dependencies** (incl. two pure-Rust inference stacks + on-demand renderer): <10 ms warm parse, 700 pages/s, byte-identical output for identical input;
 - **Four faces, one output**: CLI / library / MCP (stdio, direct agent integration) / REST — **byte-identical across interfaces**, OCR path included;
 - **RAG as a first-class citizen**: structured chunks with page + bbox + heading breadcrumbs, `locate(x, y)` reverse lookup, 100% citation coverage;
 - **Security pre-checks built in**: hidden-text filtering (anti prompt-injection — flagged and auditable, never silently dropped), zip-bomb / page-count resource guards, per-page complexity profiling;
@@ -63,7 +63,7 @@ curl -F "file=@doc.pdf" "http://127.0.0.1:8642/parse?format=chunks&ocr=true"
 OCR models (optional, three files, ~16 MB, Apache-2.0) go in `models/ppocr/`: `ch_PP-OCRv4_det_infer.onnx` + `ch_PP-OCRv4_rec_infer.onnx` (HuggingFace `SWHL/RapidOCR`) + `ppocr_keys_v1.txt` (PaddleOCR repo).
 
 ```bash
-cargo test          # 82 unit tests (CMap / matrix / XY-cut / tables / chunking / MCP / limits / OCR decode …)
+cargo test          # 116 unit tests (CMap / matrix / XY-cut / tables / chunking / MCP / limits / OCR decode / format backends …)
 ```
 
 ## Architecture
@@ -109,7 +109,8 @@ Show strings of embedded subset CID fonts are glyph indices — unreadable witho
 - [x] **N3 real enhancer**: ONNX-embedded OCR (PP-OCRv4 × `tract`, pure Rust) — `chinese_scan` goes from 0 text to **14/14 lines correct** with bbox citations; MCP/REST pass-through; digital pages stay model-free.
 - [x] **N4 (bulk)**: four table detectors (bordered → ruled → cluster → borderless), heading levels, word spacing.
 - [x] **N5 security & profiling**: hidden-text filtering (Tr 3/7 / off-page / tiny fonts → flagged + excluded + auditable), zip-bomb / page-count guards, per-page complexity profile (`--profile`).
-- [ ] **Phase 4 (planned)**: closing the axes where Docling clearly leads — layout/table-structure ONNX enhancers (hard-page routing), format parity (XLSX/PPTX/email/subtitles/images-as-documents/LaTeX …), region-level OCR / form streams, semantic enrichment (code blocks / formulas / pictures / charts / full-page VLM — VLM via OpenAI-compatible services: vLLM, Ollama, etc.), LangChain/LlamaIndex integrations, corpus-scale stress testing. See the [iteration plan](docs/plans/closing-docling-gaps.md) (Chinese).
+- [x] **Phase 4 (main body, 2026-06-11)**: format parity 3→11 (XLSX/PPTX/MD/CSV/SRT·VTT/LaTeX/EML/PNG·JPEG images-as-documents), the full G9 structure layer (tagged PDF / lists / heading levels / table-structure rebuild, TEDS gate passed), `--vlm-tables` re-extraction + figure captions (OpenAI-compatible: vLLM/Ollama), `--image-dir` export, Python client + LangChain/LlamaIndex loaders (five-line acceptance verified), stress + fuzzing (1847 inputs + ~10.2M executions, zero panics). See the [iteration plan](docs/plans/closing-docling-gaps.md) (Chinese).
+- [ ] **Pending external input**: PyPI/crates.io publishing, real-service acceptance against Ollama, thousand-doc arXiv stress / 24h fuzz, AsciiDoc/JATS/RTL (on demand).
 
 ## License
 

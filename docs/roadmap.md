@@ -225,4 +225,4 @@ flowchart TD
   Q -->|供 agent/RAG 调用| E[P3: 服务化接口 + 切块溯源 + AI 可插拔增强]
 ```
 
-进度（2026-06-10）：**M1–M7、N1–N5、Phase 4 主体（G1a/G2/G4/G8a/G8b 首增量/G9 全部）完成**——100+ 单测、clippy 零 warning、输出跨 CLI/库/MCP/REST 四接口逐字节一致；记分牌见 §6 现状。G9d 收官（表结构：通道列+规则线分带+二分重试，TEDS 0.129→0.419，验收门 ≥0.2 过）。**剩余池**：G1b 余项（EML/图片即文档，候依赖征询；AsciiDoc/JATS 按需）、G6 发布（PyPI/crates.io，候账号；客户端+loader 已落地）、G7 加强项（arXiv 千份/cargo-fuzz，候决策）、G8b 真实服务 e2e 与 `--vlm-tables` 实测（候 Ollama）、合并单元格语义（远期）。里程碑细节见 [plans/next-iteration.md](plans/next-iteration.md) 与 [plans/closing-docling-gaps.md](plans/closing-docling-gaps.md)；devlog 见 [devlogs/](devlogs/)。
+进度（2026-06-11）：**M1–M7、N1–N5、Phase 4 可自主项全部完成**——G1 格式 3→11、G6 生态（Python 客户端+LangChain/LlamaIndex）、G7 压测+fuzz（1847 输入 + ~1020 万次执行零 panic）、G8a/G8b（VLM 描述+表重抽）、G9 全部（G9d TEDS 0.129→0.419 验收门过）；116 单测、clippy 零 warning、四接口逐字节一致；记分牌见 §6 现状。**剩余池**（候外部输入）：PyPI/crates.io 发布（账号）、Ollama 真实服务验收、arXiv 千份/fuzz 24h（资源/排期）、AsciiDoc/JATS/RTL/合并单元格语义（按需/远期）。里程碑细节见 [plans/next-iteration.md](plans/next-iteration.md) 与 [plans/closing-docling-gaps.md](plans/closing-docling-gaps.md)；devlog 见 [devlogs/](devlogs/)。

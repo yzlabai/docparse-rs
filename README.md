@@ -8,7 +8,7 @@
 
 ## 亮点
 
-- **单二进制 19.1MB、运行时依赖 0**：预热解析 <10ms、700 页/s、同输入逐字节确定;
+- **单二进制 26.5MB、运行时依赖 0**（含两套纯 Rust 推理栈+按需渲染器）：预热解析 <10ms、700 页/s、同输入逐字节确定;
 - **四接口一份输出**：CLI / 库 / MCP（stdio，agent 直连）/ REST，跨接口**逐字节一致**（含 OCR 路径）;
 - **RAG 一等公民**：结构化切块带 page+bbox+标题面包屑，`locate(x,y)` 坐标反查 chunk，引用可定位率 100%;
 - **安全预检内置**：隐藏文本过滤（防 prompt injection，标注可审计而非静默删除）、zip-bomb/页数资源守卫、页级复杂度画像;
@@ -63,7 +63,7 @@ curl -F "file=@doc.pdf" "http://127.0.0.1:8642/parse?format=chunks&ocr=true"
 OCR 模型（可选，三个文件 ~16MB，Apache-2.0）放 `models/ppocr/`：`ch_PP-OCRv4_det_infer.onnx` + `ch_PP-OCRv4_rec_infer.onnx`（HuggingFace `SWHL/RapidOCR`）+ `ppocr_keys_v1.txt`（PaddleOCR 仓库）。
 
 ```bash
-cargo test          # 82 单测（CMap/矩阵/XY-cut/表格/切块/MCP/限额/OCR 解码…）
+cargo test          # 116 单测（CMap/矩阵/XY-cut/表格/切块/MCP/限额/OCR 解码/各格式后端…）
 ```
 
 ## 架构
@@ -110,7 +110,8 @@ Cargo workspace，十六个 crate：
 - [x] **N4 大部**：表格四检测器（bordered→ruled→cluster→borderless）、标题分级、词距。
 - [x] **N5 安全预检与画像**：隐藏文本过滤（Tr 3/7/页外/微字 → 标注+排除+可审计）、zip-bomb/页数资源守卫、页级复杂度画像（`--profile`）。
 - [x] **Phase 4 · G2 基建**：版面 enhancer 全链路（按需渲染/区域检测/阅读组）落地 opt-in；其"修 CJK 序"假设实测否决（gap 在区域内微观序），CJK 改由 VLM 路线攻——诚实记录见 [devlog](docs/devlogs/2026-06-10-g2-layout-enhancer.md)。
-- [ ] **Phase 4（其余）**：补齐 Docling 占优轴——版面/表结构 ONNX enhancer（难页路由）、格式平齐（XLSX/PPTX/邮件/字幕/图片即文档/LaTeX 等）、区域级 OCR/Form 流、语义增强面（代码块/公式/图片/图表/整页 VLM——VLM 经 OpenAI 兼容服务接入：vLLM/Ollama 等）、LangChain/LlamaIndex 接入、千份语料压测。见 [迭代计划](docs/plans/closing-docling-gaps.md)。
+- [x] **Phase 4 主体**（2026-06-11）：格式平齐 3→11（XLSX/PPTX/MD/CSV/SRT·VTT/LaTeX/EML/PNG·JPEG 图片即文档）、G9 结构层全部（Tagged PDF/列表/标题分级/表结构重建，TEDS 验收门过）、`--vlm-tables` 表重抽与图片描述（OpenAI 兼容协议：vLLM/Ollama）、`--image-dir` 图片导出、Python 客户端 + LangChain/LlamaIndex loader（五行验收实测）、压测+fuzz（1847 输入 + ~1020 万次执行零 panic）。见 [迭代计划](docs/plans/closing-docling-gaps.md)。
+- [ ] **候外部输入**：PyPI/crates.io 发布、Ollama 真实服务验收、arXiv 千份压测/fuzz 24h、AsciiDoc/JATS/RTL（按需）。
 
 ## 许可
 
