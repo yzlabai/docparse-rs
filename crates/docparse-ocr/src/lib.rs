@@ -17,6 +17,7 @@
 //! dots tract can't parse — sanitized in-memory at load. TODO: orientation
 //! (cls) model — upright scans assumed.
 
+pub mod formula;
 pub mod layout;
 pub mod table_model;
 pub mod unirec;

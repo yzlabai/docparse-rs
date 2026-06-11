@@ -36,9 +36,14 @@ pub fn refine_tables(doc: &mut Document, pdf_bytes: Vec<u8>, model: &UniRec) -> 
         };
         for el in &mut page.elements {
             let Element::Table(table) = el else { continue };
-            let Some((cw, ch, crop)) =
-                crop_region(&rgb, w as usize, h as usize, &table.bbox, page.height)
-            else {
+            let Some((cw, ch, crop)) = crop_region(
+                &rgb,
+                w as usize,
+                h as usize,
+                &table.bbox,
+                page.height,
+                RENDER_SCALE,
+            ) else {
                 continue;
             };
             match model.recognize(&crop, cw, ch, MAX_TOKENS) {
@@ -65,18 +70,19 @@ pub fn refine_tables(doc: &mut Document, pdf_bytes: Vec<u8>, model: &UniRec) -> 
 }
 
 /// Crop a PDF-space bbox (with a small margin) out of a page render.
-fn crop_region(
+pub(crate) fn crop_region(
     rgb: &[u8],
     w: usize,
     h: usize,
     bbox: &BBox,
     page_h: f32,
+    scale: f32,
 ) -> Option<(usize, usize, Vec<u8>)> {
     const MARGIN_PT: f32 = 2.0;
-    let x0 = (((bbox.x0 - MARGIN_PT) * RENDER_SCALE).max(0.0) as usize).min(w);
-    let x1 = (((bbox.x1 + MARGIN_PT) * RENDER_SCALE) as usize).min(w);
-    let y0 = (((page_h - bbox.y1 - MARGIN_PT) * RENDER_SCALE).max(0.0) as usize).min(h);
-    let y1 = (((page_h - bbox.y0 + MARGIN_PT) * RENDER_SCALE) as usize).min(h);
+    let x0 = (((bbox.x0 - MARGIN_PT) * scale).max(0.0) as usize).min(w);
+    let x1 = (((bbox.x1 + MARGIN_PT) * scale) as usize).min(w);
+    let y0 = (((page_h - bbox.y1 - MARGIN_PT) * scale).max(0.0) as usize).min(h);
+    let y1 = (((page_h - bbox.y0 + MARGIN_PT) * scale) as usize).min(h);
     let (cw, ch) = (x1.saturating_sub(x0), y1.saturating_sub(y0));
     if cw < 32 || ch < 32 {
         return None;

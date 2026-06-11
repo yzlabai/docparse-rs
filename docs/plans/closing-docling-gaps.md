@@ -54,7 +54,7 @@
 - [x] **R2 · UniRec 推理管线 ✅**(2026-06-11,ocr/unirec.rs):按计划实现;实测 pg9 表 3.4s 出完美 HTML(含 span),纯 Rust 全程(双线性缩放足够,无需 bicubic)。
 - [x] **R3 · 表任务接线 ✅**(2026-06-11,ocr/table_model.rs):按计划实现,含 rowspan 悬挂网格的正确展开(pending 机制);6 个新单测(含 pg9 真实形状)。
 - [x] **验收**:pg9 端到端 10×8 语义正确(rowspan/colspan 准确展开)✅;默认路径零变化(记分牌逐字不变)✅;单测齐 ✅。⚠️ **诚实记录**:flag-on 的一致度 TEDS 反而降(pg9 0.804→0.39、2206 0.421→0.115)——ODL 与 Docling 真值都用**压扁口径**(子行并、跨格合写),模型的忠实结构与之约定冲突,"一致度≠准确度"再添一例(LaTeX 源 \multirow 证实模型才是对的)。定位同 --layout:产品质量增强、手动 opt-in、不进记分牌。真正出口是 rowspan/colspan 语义入 IR(远期)。
-- 后续(顺带能力,另行小项):公式→LaTeX(同模型,G8c 主路径)、高质量 OCR 档、rowspan/colspan 语义入 IR(远期)。
+- 后续:公式→LaTeX ✅(2026-06-11,`--formula-model`,见 G8c)、高质量 OCR 档(待设计)、rowspan/colspan 语义入 IR(远期)。
 - [ ] **G3b(确定性兜底)**:保留原描述,优先级降(模型路径已通)。
 
 ### G4 · OCR 长尾 — *模块 8 续*
@@ -92,8 +92,8 @@
   - **成本边界**:任务级 opt-in(默认全关)、按元素触发、并发与超时上限;数字纯文本页零外呼。
   - **依赖征询:HTTP 客户端(`ureq` 倾向,同步轻量)+ base64**。
   - **验收**:Ollama 本地(如 qwen2.5-vl)与 vLLM 各跑通一例图片描述+图表→表格;断网/服务缺失优雅降级(确定性结果不受影响)。
-- [ ] **G8c 选择性 ONNX 内嵌(spike 门控,P4 模式)**:
-  - 公式→LaTeX:PP-FormulaNet 系 ONNX × tract spike;
+- [~] **G8c 选择性 ONNX 内嵌(spike 门控,P4 模式)**:
+  - [x] **公式→LaTeX ✅**(2026-06-11,[devlog](../devlogs/2026-06-11-formula-model.md)):`--formula-model`——DocLayout-YOLO 检 `isolate_formula` 区(class 8)→ UniRec 出 LaTeX → 替换区域内字形汤(`source: "formula:unirec-0.1b"`、tag Formula)。验收样例:基线 "2a + 8 = 12"(上标漂移)→ `\[a^{2}+8=12\]` 正确;LaTeX 防劣化门(须含数学记号、拒表格/散文);默认路径零变化。PP-FormulaNet 不再需要;
   - 图片分类:小 CNN 分类器(图表/照片/示意图)× tract spike;
   - ⚠️ **身份约束决策点**:这些模型吃**区域图**。扫描页区域可从位图裁剪(不破身份);**born-digital 的公式/图是矢量,喂模型必须合成栅格**——是否为"enhancer-only 合成栅格"开例外(主流程仍不渲染),**需用户拍板**;不开例外则 born-digital 区域走 G8b HTTP。
   - [ ] **G8d 整页 VLM**:**主路径 = G8b 服务化**(vLLM/Ollama 跑 SmolDocling/Qwen2.5-VL 级模型,整页转写难例扫描页)——服务侧天然有 GPU/量化/批处理,优于本地内嵌;`candle` 内嵌 spike 降为**远期可选**(离线单机场景才值得)。

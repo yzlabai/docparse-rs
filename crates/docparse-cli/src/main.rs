@@ -145,6 +145,14 @@ struct Cli {
     #[arg(long, value_name = "DIR")]
     table_model: Option<PathBuf>,
 
+    /// Convert display formulas to LaTeX with the embedded UniRec-0.1B
+    /// model (PDF only). Formula regions come from the DocLayout-YOLO
+    /// layout model (--layout-model path); glyph-soup text inside each
+    /// region is replaced by one LaTeX chunk tagged "Formula" with source
+    /// "formula:unirec-0.1b". Value: UniRec model directory.
+    #[arg(long, value_name = "DIR")]
+    formula_model: Option<PathBuf>,
+
     /// Export embedded raster images (≥16px a side) to this directory as
     /// JPEG/PNG files; JSON image elements gain a "file" path and Markdown
     /// references them (PDF only). Mirrors ODL's external image output.
@@ -332,6 +340,26 @@ fn main() -> anyhow::Result<()> {
             let n =
                 docparse_ocr::table_model::refine_tables(&mut doc, std::fs::read(&input)?, &model)?;
             eprintln!("{{\"table_model_refined\": {n}}}");
+        }
+    }
+
+    if let Some(dir) = &cli.formula_model {
+        let is_pdf = input
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("pdf"))
+            .unwrap_or(false);
+        if !is_pdf {
+            eprintln!("--formula-model currently supports PDF inputs only; skipped");
+        } else {
+            let model = docparse_ocr::unirec::UniRec::new(dir)?;
+            let n = docparse_ocr::formula::enhance_formulas(
+                &mut doc,
+                std::fs::read(&input)?,
+                &cli.layout_model,
+                &model,
+            )?;
+            eprintln!("{{\"formula_model_replaced\": {n}}}");
         }
     }
 
