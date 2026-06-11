@@ -190,6 +190,7 @@ pub fn detect_tables(chunks: &[&TextChunk], segments: &[Segment], page: usize) -
         },
         page,
         rows,
+        source: None,
     }]
 }
 
@@ -448,6 +449,7 @@ fn build_borderless(rows: &[Row], region: &[usize], cols: &[f32]) -> Option<Tabl
         },
         page: rows[region[0]].segs[0].chunks[0].page,
         rows: out_rows,
+        source: None,
     })
 }
 
@@ -821,6 +823,7 @@ fn build_grid(
         bbox: region,
         page,
         rows: out_rows,
+        source: None,
     }
 }
 

@@ -109,6 +109,14 @@ struct Cli {
     #[arg(long)]
     vlm_describe: bool,
 
+    /// Re-extract detected tables' structure with a VLM (renders each table
+    /// region on demand; PDF only). Handles merged cells / multi-row headers
+    /// the geometric detectors can't. Requires --vlm-url and --vlm-model;
+    /// replaced tables carry source "vlm:<model>", failures keep the
+    /// deterministic grid.
+    #[arg(long)]
+    vlm_tables: bool,
+
     /// OpenAI-compatible service base URL (vLLM / Ollama / LM Studio / cloud),
     /// e.g. http://127.0.0.1:11434
     #[arg(long)]
@@ -296,26 +304,32 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    if cli.vlm_describe {
+    if cli.vlm_describe || cli.vlm_tables {
         let is_pdf = input
             .extension()
             .and_then(|e| e.to_str())
             .map(|e| e.eq_ignore_ascii_case("pdf"))
             .unwrap_or(false);
         if !is_pdf {
-            eprintln!("--vlm-describe currently supports PDF inputs only; skipped");
+            eprintln!("--vlm-describe/--vlm-tables currently support PDF inputs only; skipped");
         } else {
             let (url, model) = match (cli.vlm_url.clone(), cli.vlm_model.clone()) {
                 (Some(u), Some(m)) => (u, m),
-                _ => anyhow::bail!("--vlm-describe requires --vlm-url and --vlm-model"),
+                _ => anyhow::bail!("--vlm-describe/--vlm-tables require --vlm-url and --vlm-model"),
             };
             let client = docparse_vlm::VlmClient::new(docparse_vlm::VlmConfig {
                 url,
                 model,
                 api_key: cli.vlm_api_key.clone(),
             });
-            let n = docparse_vlm::annotate_pictures(&mut doc, std::fs::read(&input)?, &client)?;
-            eprintln!("{{\"vlm_described_figures\": {n}}}");
+            if cli.vlm_describe {
+                let n = docparse_vlm::annotate_pictures(&mut doc, std::fs::read(&input)?, &client)?;
+                eprintln!("{{\"vlm_described_figures\": {n}}}");
+            }
+            if cli.vlm_tables {
+                let n = docparse_vlm::refine_tables(&mut doc, std::fs::read(&input)?, &client)?;
+                eprintln!("{{\"vlm_refined_tables\": {n}}}");
+            }
         }
     }
 

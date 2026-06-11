@@ -154,6 +154,10 @@ pub struct Table {
     pub page: usize,
     /// Row-major: `rows[r][c]`. All rows have the same length (column count).
     pub rows: Vec<Vec<Cell>>,
+    /// `None` = deterministic detection; `"vlm:<model>"` = grid re-extracted
+    /// by a model (`--vlm-tables`) — same audit convention as `TextChunk`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 /// One element on a page. `Table` is the first semantic block; lists/headings

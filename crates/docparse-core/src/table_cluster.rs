@@ -507,6 +507,7 @@ fn recognize(mut headers: Vec<Cluster>, mut clusters: Vec<Cluster>, page: usize)
         bbox: BBox { x0, y0, x1, y1 },
         page,
         rows,
+        source: None,
     })
 }
 

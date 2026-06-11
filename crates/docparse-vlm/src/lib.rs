@@ -15,7 +15,7 @@
 
 use anyhow::{Context, Result};
 use base64::Engine;
-use docparse_core::ir::{BBox, Document, Element, TextChunk};
+use docparse_core::ir::{BBox, Cell, Document, Element, TextChunk};
 
 /// Minimum share of the page area for a figure to be worth a VLM call.
 const MIN_FIGURE_COVERAGE: f32 = 0.01;
@@ -167,6 +167,119 @@ pub fn annotate_pictures(
         }
     }
     Ok(annotated)
+}
+
+const TABLE_PROMPT: &str = "Extract the table in this image as tab-separated values: \
+one line per row, cells separated by TAB characters. For merged cells repeat the \
+value in every spanned position. Output ONLY the rows, no commentary, no markdown.";
+
+/// Re-extract the structure of detected tables with a VLM (`--vlm-tables`):
+/// render each table's region, ask for TSV, and REPLACE the deterministic
+/// grid when the answer parses into a sane (≥2×2) grid — the model sees the
+/// drawn table, so it can resolve merged cells and multi-row headers the
+/// geometric detectors cannot. On any failure the deterministic grid stands.
+/// Replaced tables carry `source: "vlm:<model>"`; cell bboxes become an even
+/// synthetic grid over the (real) table bbox — the VLM returns no geometry.
+/// Returns the number of tables replaced.
+pub fn refine_tables(doc: &mut Document, pdf_bytes: Vec<u8>, client: &VlmClient) -> Result<usize> {
+    let raster = docparse_raster::Rasterizer::new(pdf_bytes)?;
+    let mut refined = 0usize;
+    for page in &mut doc.pages {
+        let has_tables = page.elements.iter().any(|e| matches!(e, Element::Table(_)));
+        if !has_tables {
+            continue;
+        }
+        let (w, h, rgb) = match raster.render_rgb(page.number.saturating_sub(1), RENDER_SCALE) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("vlm: render failed on page {}: {e:#}", page.number);
+                continue;
+            }
+        };
+        for el in &mut page.elements {
+            let Element::Table(table) = el else { continue };
+            let Some((cw, ch, crop)) = crop_region(
+                &rgb,
+                w as usize,
+                h as usize,
+                &table.bbox,
+                RENDER_SCALE,
+                page.height,
+            ) else {
+                continue;
+            };
+            match client.ask_about_image(&crop, cw as u32, ch as u32, TABLE_PROMPT) {
+                Ok(text) => {
+                    let Some(grid) = parse_tsv_grid(&text) else {
+                        eprintln!(
+                            "vlm: table answer on page {} not a usable grid; keeping deterministic rows",
+                            page.number
+                        );
+                        continue;
+                    };
+                    table.rows = grid_cells(&grid, &table.bbox);
+                    table.source = Some(format!("vlm:{}", client.model()));
+                    refined += 1;
+                }
+                Err(e) => eprintln!("vlm: table extract failed on page {}: {e:#}", page.number),
+            }
+        }
+    }
+    Ok(refined)
+}
+
+/// Parse a TSV answer into a rectangular text grid. Tolerates markdown code
+/// fences (models add them despite instructions) and ragged rows (padded to
+/// the widest). `None` unless the result is a real 2-D grid (≥2×2) with some
+/// content — a refusal or prose answer must not replace a detected table.
+fn parse_tsv_grid(text: &str) -> Option<Vec<Vec<String>>> {
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    for line in text.lines() {
+        let line = line.trim_end();
+        let t = line.trim();
+        if t.is_empty() || t.starts_with("```") {
+            continue;
+        }
+        rows.push(line.split('\t').map(|c| c.trim().to_string()).collect());
+    }
+    let ncols = rows.iter().map(Vec::len).max()?;
+    if rows.len() < 2 || ncols < 2 {
+        return None;
+    }
+    // Mostly-1-column output is prose, not a table the model actually read.
+    let multi = rows.iter().filter(|r| r.len() >= 2).count();
+    if multi * 2 < rows.len() {
+        return None;
+    }
+    for r in &mut rows {
+        r.resize(ncols, String::new());
+    }
+    Some(rows)
+}
+
+/// Even synthetic cell bboxes over the table region (honest approximation:
+/// the table bbox is real, per-cell geometry from a VLM is not available).
+fn grid_cells(grid: &[Vec<String>], bbox: &BBox) -> Vec<Vec<Cell>> {
+    let nr = grid.len() as f32;
+    let nc = grid.first().map(Vec::len).unwrap_or(0) as f32;
+    let (tw, th) = (bbox.x1 - bbox.x0, bbox.y1 - bbox.y0);
+    grid.iter()
+        .enumerate()
+        .map(|(ri, row)| {
+            row.iter()
+                .enumerate()
+                .map(|(ci, text)| Cell {
+                    text: text.clone(),
+                    bbox: BBox {
+                        x0: bbox.x0 + tw * ci as f32 / nc,
+                        y0: bbox.y1 - th * (ri as f32 + 1.0) / nr,
+                        x1: bbox.x0 + tw * (ci as f32 + 1.0) / nc,
+                        y1: bbox.y1 - th * ri as f32 / nr,
+                    },
+                })
+                .collect()
+        })
+        .collect()
 }
 
 /// Crop a PDF-space bbox out of a page render (y flips between spaces).
@@ -382,6 +495,42 @@ mod tests {
         // PDF bbox covering the TOP half maps to image rows 0..50 — the marked
         // pixel must be inside the crop at (0,0).
         assert_eq!(crop[0], 255, "y-flip must select the top of the image");
+    }
+
+    #[test]
+    fn tsv_grid_parses_and_pads() {
+        let g = parse_tsv_grid("```\nName\tValue\na\t1\nb\t2\textra\n```").unwrap();
+        assert_eq!(g.len(), 3);
+        assert_eq!(g[0], vec!["Name", "Value", ""]); // padded to widest
+        assert_eq!(g[2], vec!["b", "2", "extra"]);
+    }
+
+    #[test]
+    fn tsv_grid_rejects_prose_and_1d() {
+        // A refusal / prose answer must never replace a detected table.
+        assert!(parse_tsv_grid("I cannot see a table in this image.").is_none());
+        assert!(parse_tsv_grid("only\tone row").is_none());
+        assert!(parse_tsv_grid("a\nb\nc\n").is_none()); // one column
+    }
+
+    #[test]
+    fn vlm_grid_cells_tile_the_table_bbox() {
+        let grid = vec![
+            vec!["a".to_string(), "b".to_string()],
+            vec!["c".to_string(), "d".to_string()],
+        ];
+        let bbox = BBox {
+            x0: 100.0,
+            y0: 200.0,
+            x1: 300.0,
+            y1: 300.0,
+        };
+        let cells = grid_cells(&grid, &bbox);
+        assert_eq!(cells[0][0].text, "a");
+        // Row 0 is the TOP row in PDF space (y1 side).
+        assert_eq!(cells[0][0].bbox.y1, 300.0);
+        assert_eq!(cells[1][1].bbox.x1, 300.0);
+        assert_eq!(cells[1][1].bbox.y0, 200.0);
     }
 
     /// Spin a one-shot HTTP server on a thread, assert the request shape, and

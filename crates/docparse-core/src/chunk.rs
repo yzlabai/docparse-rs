@@ -345,6 +345,7 @@ mod tests {
                 y1: 500.0,
             },
             page: 1,
+            source: None,
             rows: vec![vec![
                 Cell {
                     text: "A".into(),

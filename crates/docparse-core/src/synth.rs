@@ -157,6 +157,7 @@ impl PageBuilder {
             },
             page: self.page_no,
             rows: out_rows,
+            source: None,
         }));
         self.y = bottom - Self::line_height(size);
     }

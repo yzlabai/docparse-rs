@@ -39,6 +39,7 @@ cargo build --release
 ./target/release/docparse scan.pdf --ocr           # OCR scans (needs models/ppocr; free for digital pages)
 ./target/release/docparse hard.pdf --layout        # layout-model macro reading order (needs models/layout, opt-in)
 ./target/release/docparse doc.pdf --vlm-describe --vlm-url http://127.0.0.1:11434 --vlm-model qwen2.5vl   # VLM figure captions
+./target/release/docparse doc.pdf --vlm-tables --vlm-url http://127.0.0.1:11434 --vlm-model qwen2.5vl     # VLM table re-extraction (merged cells / multi-row headers); failures keep the deterministic grid
 ./target/release/docparse doc.pdf --image-dir imgs/   # export embedded images (JPEG/PNG); JSON gains "file", Markdown gains ![]() refs
 ./target/release/docparse input.pdf --quality --profile --route-plan   # quality / per-page profile / routing (JSON on stderr)
 
