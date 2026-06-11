@@ -12,6 +12,7 @@ use docparse_html::HtmlParser;
 use docparse_md::MarkdownParser;
 use docparse_pdf::PdfParser;
 use docparse_pptx::PptxParser;
+use docparse_srt::SrtParser;
 use docparse_xlsx::XlsxParser;
 use std::path::PathBuf;
 
@@ -27,6 +28,7 @@ pub(crate) fn parsers_with(decode_images: bool) -> Vec<Box<dyn DocumentParser>> 
         Box::new(PptxParser),
         Box::new(MarkdownParser),
         Box::new(CsvParser),
+        Box::new(SrtParser),
     ]
 }
 

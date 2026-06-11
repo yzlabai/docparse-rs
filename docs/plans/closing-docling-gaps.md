@@ -30,7 +30,7 @@
 **G1b 长尾(对齐 Docling 后端清单)**:
 
 - [ ] **邮件 EML**:正文(text/html 部分复用 HTML 后端)+ 头部(From/Subject→标题结构)+ 附件列举;**依赖征询:`mail-parser`**(纯 Rust)。
-- [ ] **字幕 SRT/WebVTT**:时间戳→段落 metadata,文本→正文;格式简单,**std 手写零依赖**。
+- [x] **字幕 SRT/WebVTT ✅**(2026-06-11,[devlog](../devlogs/2026-06-11-srt-vtt-subtitles.md)):docparse-srt(零依赖手写),每 cue 一段 `[hh:mm:ss] 文本`(时间戳=可引用性,保留);VTT 头部/NOTE/STYLE 跳过、`<v 说话人>`→前缀、行内标签剥除。顺带修了 synth 段距 bug(所有 synth 后端段落被 1.8em 合并门错并——影响 docx/html/md 文本输出)。
 - [ ] **图片即文档(PNG/JPEG/TIFF 单页)**:解码为单页全幅 ImageChunk → **直接复用 N3 OCR 路由**(我方独有优势:整条 OCR 管线已就绪);**依赖征询:`zune-png`**(JPEG 已有)。
 - [ ] **AsciiDoc / LaTeX 源码**:常用子集手写解析(标题/段落/列表/表格);完整方言显式不保证,文档化边界。
 - [ ] **XML 族(JATS 学术/METS-ALTO 档案)**:按真实需求逐个立项(quick-xml 复用);METS-ALTO 自带坐标,可出**真实 bbox**(非合成)。

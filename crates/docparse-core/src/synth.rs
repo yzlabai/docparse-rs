@@ -74,6 +74,14 @@ impl PageBuilder {
         (text.chars().count() as f32 * size * 0.5).min(self.width - 2.0 * self.margin)
     }
 
+    /// Extra vertical space after a paragraph (× font size). One builder
+    /// paragraph is already a complete logical block, so consecutive blocks
+    /// must NOT look like wrapped lines of one paragraph: the block grouper
+    /// merges lines whose center gap is ≤1.8 em, and the bare 1.4 em line
+    /// height fell under that — every synthetic backend's paragraphs were
+    /// being mashed together in text/markdown output.
+    const PARA_SPACING: f32 = 0.6;
+
     /// Add a paragraph (or heading — just use a larger `size`). Empty text is
     /// skipped. One chunk per block; the output layer reconstructs paragraphs.
     pub fn paragraph(&mut self, text: impl Into<String>, size: f32) {
@@ -104,7 +112,7 @@ impl PageBuilder {
             group: None,
             tag: None,
         }));
-        self.y -= lh;
+        self.y -= lh + Self::PARA_SPACING * size;
     }
 
     /// Add a table from row-major cell text. Cells get synthetic grid bboxes so

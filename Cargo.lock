@@ -646,6 +646,7 @@ dependencies = [
  "docparse-ocr",
  "docparse-pdf",
  "docparse-pptx",
+ "docparse-srt",
  "docparse-vlm",
  "docparse-xlsx",
  "serde_json",
@@ -734,6 +735,14 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "hayro",
+]
+
+[[package]]
+name = "docparse-srt"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "docparse-core",
 ]
 
 [[package]]
