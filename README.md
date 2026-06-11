@@ -52,10 +52,11 @@ cargo build --release
 ```bash
 # Claude Code 接入：
 claude mcp add docparse -- /path/to/docparse mcp
-# 工具面：parse_document(path, format, ocr) / get_chunks(path, ocr) / locate(path, page, x, y)
+# 工具面：parse_document / get_chunks / locate——参数 ocr/layout/table_model/formula_model/vlm_*
+#（服务启动时配模型：docparse mcp --unirec-models models/unirec --vlm-url ...）
 
 # REST：
-curl -F "file=@doc.pdf" "http://127.0.0.1:8642/parse?format=chunks&ocr=true"
+curl -F "file=@doc.pdf" "http://127.0.0.1:8642/parse?format=chunks&ocr=true&table_model=true"
 
 # Python / LangChain（clients/python，零依赖薄客户端）：
 #   from docparse_client.langchain import DocparseLoader

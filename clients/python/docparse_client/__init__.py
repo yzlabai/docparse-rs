@@ -52,13 +52,31 @@ class DocparseClient:
         self.binary = _find_binary(binary)
         self.timeout = timeout
 
-    def parse(self, path: Union[str, Path], format: str = "json", ocr: bool = False) -> Any:
-        """Parse one document. JSON formats return decoded objects."""
+    def parse(
+        self,
+        path: Union[str, Path],
+        format: str = "json",
+        ocr: bool = False,
+        layout: bool = False,
+        table_model: Union[str, None] = None,
+        formula_model: Union[str, None] = None,
+    ) -> Any:
+        """Parse one document. JSON formats return decoded objects.
+
+        `table_model` / `formula_model` take a UniRec model directory and
+        enable the embedded enhancement passes (PDF only).
+        """
         if format not in _TEXT_FORMATS + _JSON_FORMATS:
             raise ValueError(f"unknown format {format!r}")
         cmd = [self.binary, str(path), "-f", format]
         if ocr:
             cmd.append("--ocr")
+        if layout:
+            cmd.append("--layout")
+        if table_model:
+            cmd += ["--table-model", str(table_model)]
+        if formula_model:
+            cmd += ["--formula-model", str(formula_model)]
         proc = subprocess.run(
             cmd, capture_output=True, timeout=self.timeout, check=False
         )
@@ -79,7 +97,17 @@ class DocparseHttpClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
-    def parse(self, path: Union[str, Path], format: str = "json", ocr: bool = False) -> Any:
+    def parse(
+        self,
+        path: Union[str, Path],
+        format: str = "json",
+        ocr: bool = False,
+        layout: bool = False,
+        table_model: bool = False,
+        formula_model: bool = False,
+    ) -> Any:
+        """Boolean enhancement flags map to query params; the server must be
+        started with the matching model config (--unirec-models etc.)."""
         if format not in _TEXT_FORMATS + _JSON_FORMATS:
             raise ValueError(f"unknown format {format!r}")
         path = Path(path)
@@ -93,7 +121,17 @@ class DocparseHttpClient:
                 f"\r\n--{boundary}--\r\n".encode(),
             ]
         )
-        url = f"{self.base_url}/parse?format={format}&ocr={'true' if ocr else 'false'}"
+        flags = "".join(
+            f"&{k}=true"
+            for k, v in [
+                ("ocr", ocr),
+                ("layout", layout),
+                ("table_model", table_model),
+                ("formula_model", formula_model),
+            ]
+            if v
+        )
+        url = f"{self.base_url}/parse?format={format}{flags}"
         req = urllib.request.Request(
             url,
             data=body,

@@ -168,6 +168,21 @@ enum Command {
         /// Model dir for the optional `ocr: true` tool argument.
         #[arg(long, default_value = "models/ppocr")]
         ocr_models: PathBuf,
+        /// DocLayout-YOLO path for `layout`/`formula_model` tool arguments.
+        #[arg(long, default_value = "models/layout/doclayout_yolo.onnx")]
+        layout_model: PathBuf,
+        /// UniRec model dir enabling `table_model`/`formula_model` arguments.
+        #[arg(long)]
+        unirec_models: Option<PathBuf>,
+        /// OpenAI-compatible service URL enabling `vlm_describe`/`vlm_tables`.
+        #[arg(long)]
+        vlm_url: Option<String>,
+        /// Vision model name for the VLM service.
+        #[arg(long)]
+        vlm_model: Option<String>,
+        /// Bearer token for the VLM service.
+        #[arg(long)]
+        vlm_api_key: Option<String>,
     },
     /// Serve a REST API on 127.0.0.1: POST /parse (multipart) + GET /healthz.
     Serve {
@@ -177,6 +192,21 @@ enum Command {
         /// Model dir for the optional `?ocr=true` query parameter.
         #[arg(long, default_value = "models/ppocr")]
         ocr_models: PathBuf,
+        /// DocLayout-YOLO path for `?layout=true` / `?formula_model=true`.
+        #[arg(long, default_value = "models/layout/doclayout_yolo.onnx")]
+        layout_model: PathBuf,
+        /// UniRec model dir enabling `?table_model=true` / `?formula_model=true`.
+        #[arg(long)]
+        unirec_models: Option<PathBuf>,
+        /// OpenAI-compatible service URL enabling `?vlm_describe=true` / `?vlm_tables=true`.
+        #[arg(long)]
+        vlm_url: Option<String>,
+        /// Vision model name for the VLM service.
+        #[arg(long)]
+        vlm_model: Option<String>,
+        /// Bearer token for the VLM service.
+        #[arg(long)]
+        vlm_api_key: Option<String>,
     },
 }
 
@@ -213,6 +243,143 @@ pub(crate) fn apply_ocr(
     ocr: &docparse_ocr::PpOcrEnhancer,
 ) -> docparse_core::ir::Document {
     docparse_core::enhance::apply(&doc, &[ocr as &dyn docparse_core::enhance::Enhancer]).0
+}
+
+fn vlm_config(
+    url: Option<String>,
+    model: Option<String>,
+    api_key: Option<String>,
+) -> Option<docparse_vlm::VlmConfig> {
+    match (url, model) {
+        (Some(url), Some(model)) => Some(docparse_vlm::VlmConfig {
+            url,
+            model,
+            api_key,
+        }),
+        _ => None,
+    }
+}
+
+/// Per-request enhancement switches for the serving faces (MCP tool args /
+/// REST query params). Everything defaults off — the deterministic result.
+#[derive(Default, Clone, Copy)]
+pub(crate) struct EnhanceOpts {
+    pub ocr: bool,
+    pub layout: bool,
+    pub table_model: bool,
+    pub formula_model: bool,
+    pub vlm_describe: bool,
+    pub vlm_tables: bool,
+}
+
+impl EnhanceOpts {
+    fn any_pdf_only(&self) -> bool {
+        self.layout
+            || self.table_model
+            || self.formula_model
+            || self.vlm_describe
+            || self.vlm_tables
+    }
+}
+
+/// Server-lifetime enhancement state: capability config from startup flags +
+/// lazily-loaded models shared across requests (UniRec is ~700MB — loading
+/// once per server is the point). A capability whose config is absent yields
+/// a clear per-request error naming the startup flag, never a crash.
+pub(crate) struct EnhanceState {
+    pub ocr: OcrState,
+    layout_model: PathBuf,
+    unirec_dir: Option<PathBuf>,
+    vlm: Option<docparse_vlm::VlmConfig>,
+    unirec: std::sync::OnceLock<Result<std::sync::Arc<docparse_ocr::unirec::UniRec>, String>>,
+}
+
+impl EnhanceState {
+    pub(crate) fn new(
+        ocr_models: PathBuf,
+        layout_model: PathBuf,
+        unirec_dir: Option<PathBuf>,
+        vlm: Option<docparse_vlm::VlmConfig>,
+    ) -> Self {
+        Self {
+            ocr: OcrState::new(ocr_models),
+            layout_model,
+            unirec_dir,
+            vlm,
+            unirec: std::sync::OnceLock::new(),
+        }
+    }
+
+    fn unirec(&self) -> anyhow::Result<std::sync::Arc<docparse_ocr::unirec::UniRec>> {
+        let dir = self.unirec_dir.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("table/formula model not configured (start with --unirec-models <dir>)")
+        })?;
+        self.unirec
+            .get_or_init(|| {
+                docparse_ocr::unirec::UniRec::new(dir)
+                    .map(std::sync::Arc::new)
+                    .map_err(|e| format!("{e:#}"))
+            })
+            .clone()
+            .map_err(|e| anyhow::anyhow!("unirec models unavailable: {e}"))
+    }
+
+    /// Apply the requested enhancements in the CLI's order. PDF-only
+    /// enhancements are skipped for other formats (documented in the tool
+    /// descriptions); unconfigured capabilities error with the startup flag
+    /// to set.
+    pub(crate) fn apply(
+        &self,
+        mut doc: docparse_core::ir::Document,
+        path: &std::path::Path,
+        o: EnhanceOpts,
+    ) -> anyhow::Result<docparse_core::ir::Document> {
+        if o.ocr {
+            let enhancer = self
+                .ocr
+                .get()
+                .map_err(|e| anyhow::anyhow!("ocr models unavailable: {e}"))?;
+            doc = apply_ocr(doc, enhancer);
+        }
+        let is_pdf = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("pdf"))
+            .unwrap_or(false);
+        if !o.any_pdf_only() || !is_pdf {
+            return Ok(doc);
+        }
+        if o.layout {
+            let bytes = std::fs::read(path)?;
+            docparse_ocr::layout::enhance_document(&mut doc, bytes, &self.layout_model, 2.0)?;
+        }
+        if o.table_model {
+            let model = self.unirec()?;
+            docparse_ocr::table_model::refine_tables(&mut doc, std::fs::read(path)?, &model)?;
+        }
+        if o.formula_model {
+            let model = self.unirec()?;
+            docparse_ocr::formula::enhance_formulas(
+                &mut doc,
+                std::fs::read(path)?,
+                &self.layout_model,
+                &model,
+            )?;
+        }
+        if o.vlm_describe || o.vlm_tables {
+            let cfg = self.vlm.clone().ok_or_else(|| {
+                anyhow::anyhow!("vlm not configured (start with --vlm-url and --vlm-model)")
+            })?;
+            let client = docparse_vlm::VlmClient::new(cfg);
+            if o.vlm_describe {
+                docparse_vlm::annotate_pictures(&mut doc, std::fs::read(path)?, &client)?;
+            }
+            if o.vlm_tables {
+                docparse_vlm::refine_tables(&mut doc, std::fs::read(path)?, &client)?;
+            }
+        }
+        Ok(doc)
+    }
 }
 
 /// Write each decoded image to `dir` (JPEG passthrough as-is; raw Gray8/Rgb8
@@ -273,9 +440,39 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Command::Mcp { ocr_models }) => return mcp::serve(OcrState::new(ocr_models)),
-        Some(Command::Serve { port, ocr_models }) => {
-            return server::serve(port, OcrState::new(ocr_models))
+        Some(Command::Mcp {
+            ocr_models,
+            layout_model,
+            unirec_models,
+            vlm_url,
+            vlm_model,
+            vlm_api_key,
+        }) => {
+            return mcp::serve(EnhanceState::new(
+                ocr_models,
+                layout_model,
+                unirec_models,
+                vlm_config(vlm_url, vlm_model, vlm_api_key),
+            ))
+        }
+        Some(Command::Serve {
+            port,
+            ocr_models,
+            layout_model,
+            unirec_models,
+            vlm_url,
+            vlm_model,
+            vlm_api_key,
+        }) => {
+            return server::serve(
+                port,
+                EnhanceState::new(
+                    ocr_models,
+                    layout_model,
+                    unirec_models,
+                    vlm_config(vlm_url, vlm_model, vlm_api_key),
+                ),
+            )
         }
         None => {}
     }

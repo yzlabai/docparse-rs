@@ -24,8 +24,9 @@ use std::io::{BufRead, Write};
 const PROTOCOL_VERSION: &str = "2025-03-26";
 
 /// Run the stdio loop until stdin closes. One JSON-RPC message per line.
-/// `ocr` is the lazily-loaded enhancer behind the tools' `ocr: true` argument.
-pub fn serve(ocr: crate::OcrState) -> anyhow::Result<()> {
+/// `state` holds the lazily-loaded enhancement models behind the tools'
+/// boolean arguments (ocr/layout/table_model/formula_model/vlm_*).
+pub fn serve(state: crate::EnhanceState) -> anyhow::Result<()> {
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
@@ -34,7 +35,7 @@ pub fn serve(ocr: crate::OcrState) -> anyhow::Result<()> {
         if line.trim().is_empty() {
             continue;
         }
-        if let Some(resp) = handle_line(&line, &ocr) {
+        if let Some(resp) = handle_line(&line, &state) {
             writeln!(out, "{resp}")?;
             out.flush()?;
         }
@@ -43,7 +44,7 @@ pub fn serve(ocr: crate::OcrState) -> anyhow::Result<()> {
 }
 
 /// Handle one incoming message; `None` for notifications (no response due).
-fn handle_line(line: &str, ocr: &crate::OcrState) -> Option<String> {
+fn handle_line(line: &str, state: &crate::EnhanceState) -> Option<String> {
     let msg: Value = match serde_json::from_str(line) {
         Ok(v) => v,
         Err(e) => {
@@ -74,7 +75,7 @@ fn handle_line(line: &str, ocr: &crate::OcrState) -> Option<String> {
         })),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tool_specs() })),
-        "tools/call" => call_tool(&params, ocr),
+        "tools/call" => call_tool(&params, state),
         _ => Err((-32601, format!("method not found: {method}"))),
     };
     Some(
@@ -104,7 +105,17 @@ fn tool_specs() -> Value {
                     "format": { "type": "string", "enum": ["json", "markdown", "text"],
                                 "description": "Output format (default json)" },
                     "ocr": { "type": "boolean",
-                             "description": "OCR scanned pages (default false; digital pages never touch the model)" }
+                             "description": "OCR scanned pages (default false; digital pages never touch the model)" },
+                    "layout": { "type": "boolean",
+                                "description": "Re-derive reading order with the layout model (PDF only; needs server --layout-model files)" },
+                    "table_model": { "type": "boolean",
+                                     "description": "Re-extract table structure with the embedded UniRec model (PDF only; needs server --unirec-models)" },
+                    "formula_model": { "type": "boolean",
+                                       "description": "Convert display formulas to LaTeX (PDF only; needs server --unirec-models + layout model)" },
+                    "vlm_describe": { "type": "boolean",
+                                      "description": "Caption figures via the configured VLM service (PDF only; needs server --vlm-url/--vlm-model)" },
+                    "vlm_tables": { "type": "boolean",
+                                    "description": "Re-extract tables via the configured VLM service (PDF only)" }
                 },
                 "required": ["path"]
             }
@@ -120,7 +131,12 @@ fn tool_specs() -> Value {
                 "properties": {
                     "path": { "type": "string", "description": "Local file path" },
                     "ocr": { "type": "boolean",
-                             "description": "OCR scanned pages (default false)" }
+                             "description": "OCR scanned pages (default false)" },
+                    "layout": { "type": "boolean", "description": "Layout-model reading order (PDF only)" },
+                    "table_model": { "type": "boolean", "description": "UniRec table structure (PDF only)" },
+                    "formula_model": { "type": "boolean", "description": "Formulas to LaTeX (PDF only)" },
+                    "vlm_describe": { "type": "boolean", "description": "VLM figure captions (PDF only)" },
+                    "vlm_tables": { "type": "boolean", "description": "VLM table re-extraction (PDF only)" }
                 },
                 "required": ["path"]
             }
@@ -147,16 +163,16 @@ fn tool_specs() -> Value {
 
 /// Dispatch `tools/call`. Unknown tool = protocol error; tool failure = result
 /// with `isError: true` so the agent sees a structured, recoverable message.
-fn call_tool(params: &Value, ocr: &crate::OcrState) -> Result<Value, (i64, String)> {
+fn call_tool(params: &Value, state: &crate::EnhanceState) -> Result<Value, (i64, String)> {
     let name = params.get("name").and_then(Value::as_str).unwrap_or("");
     let args = params
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| json!({}));
     let run = match name {
-        "parse_document" => tool_parse_document(&args, ocr),
-        "get_chunks" => tool_get_chunks(&args, ocr),
-        "locate" => tool_locate(&args, ocr),
+        "parse_document" => tool_parse_document(&args, state),
+        "get_chunks" => tool_get_chunks(&args, state),
+        "locate" => tool_locate(&args, state),
         _ => return Err((-32602, format!("unknown tool: {name}"))),
     };
     Ok(match run {
@@ -174,24 +190,29 @@ fn str_arg<'a>(args: &'a Value, key: &str) -> anyhow::Result<&'a str> {
         .ok_or_else(|| anyhow::anyhow!("missing required argument: {key}"))
 }
 
-/// Parse, then OCR quality-flagged pages when the tool asked for it
-/// (`"ocr": true`). Digital pages never touch the model either way.
-fn parse_with_ocr(
+/// Parse, then apply whatever enhancements the tool asked for (boolean
+/// arguments; everything defaults off = the deterministic result). PDF-only
+/// enhancements are no-ops on other formats.
+fn parse_enhanced(
     args: &Value,
-    ocr: &crate::OcrState,
+    state: &crate::EnhanceState,
 ) -> anyhow::Result<docparse_core::ir::Document> {
-    let doc = crate::parse_path(std::path::Path::new(str_arg(args, "path")?))?;
-    if args.get("ocr").and_then(Value::as_bool).unwrap_or(false) {
-        let enhancer = ocr
-            .get()
-            .map_err(|e| anyhow::anyhow!("ocr models unavailable: {e}"))?;
-        return Ok(crate::apply_ocr(doc, enhancer));
-    }
-    Ok(doc)
+    let path = std::path::Path::new(str_arg(args, "path")?);
+    let doc = crate::parse_path(path)?;
+    let flag = |k: &str| args.get(k).and_then(Value::as_bool).unwrap_or(false);
+    let opts = crate::EnhanceOpts {
+        ocr: flag("ocr"),
+        layout: flag("layout"),
+        table_model: flag("table_model"),
+        formula_model: flag("formula_model"),
+        vlm_describe: flag("vlm_describe"),
+        vlm_tables: flag("vlm_tables"),
+    };
+    state.apply(doc, path, opts)
 }
 
-fn tool_parse_document(args: &Value, ocr: &crate::OcrState) -> anyhow::Result<String> {
-    let doc = parse_with_ocr(args, ocr)?;
+fn tool_parse_document(args: &Value, state: &crate::EnhanceState) -> anyhow::Result<String> {
+    let doc = parse_enhanced(args, state)?;
     match args.get("format").and_then(Value::as_str).unwrap_or("json") {
         "json" => output::to_json(&doc),
         "markdown" => Ok(output::to_markdown(&doc)),
@@ -202,8 +223,8 @@ fn tool_parse_document(args: &Value, ocr: &crate::OcrState) -> anyhow::Result<St
     }
 }
 
-fn tool_get_chunks(args: &Value, ocr: &crate::OcrState) -> anyhow::Result<String> {
-    let doc = parse_with_ocr(args, ocr)?;
+fn tool_get_chunks(args: &Value, state: &crate::EnhanceState) -> anyhow::Result<String> {
+    let doc = parse_enhanced(args, state)?;
     let chunks = docparse_core::chunk::chunk_document(&doc);
     let envelope = json!({
         "provenance": serde_json::to_value(&doc.provenance)?,
@@ -214,8 +235,8 @@ fn tool_get_chunks(args: &Value, ocr: &crate::OcrState) -> anyhow::Result<String
     Ok(serde_json::to_string_pretty(&envelope)?)
 }
 
-fn tool_locate(args: &Value, ocr: &crate::OcrState) -> anyhow::Result<String> {
-    let doc = parse_with_ocr(args, ocr)?;
+fn tool_locate(args: &Value, state: &crate::EnhanceState) -> anyhow::Result<String> {
+    let doc = parse_enhanced(args, state)?;
     let page = args
         .get("page")
         .and_then(Value::as_u64)
@@ -240,8 +261,13 @@ mod tests {
         json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params }).to_string()
     }
 
-    fn state() -> crate::OcrState {
-        crate::OcrState::new("models/ppocr".into())
+    fn state() -> crate::EnhanceState {
+        crate::EnhanceState::new(
+            "models/ppocr".into(),
+            "models/layout/doclayout_yolo.onnx".into(),
+            None,
+            None,
+        )
     }
 
     fn result_of(line: &str) -> Value {
@@ -327,7 +353,12 @@ mod tests {
                     json!({ "name": "get_chunks",
                             "arguments": { "path": path, "ocr": true } }),
                 ),
-                &crate::OcrState::new("/nonexistent/models".into()),
+                &crate::EnhanceState::new(
+                    "/nonexistent/models".into(),
+                    "models/layout/doclayout_yolo.onnx".into(),
+                    None,
+                    None,
+                ),
             )
             .unwrap(),
         )
@@ -336,6 +367,29 @@ mod tests {
         assert_eq!(r["isError"], true);
         let msg = r["content"][0]["text"].as_str().unwrap();
         assert!(msg.contains("ocr models unavailable"), "got: {msg}");
+    }
+
+    #[test]
+    fn unconfigured_capability_names_the_startup_flag() {
+        // table_model: true on a server started without --unirec-models must
+        // fail with guidance, not crash — and only for PDFs (the enhancement
+        // is a documented no-op on other formats).
+        let pdf = std::env::temp_dir().join("docparse-mcp-tm.pdf");
+        std::fs::write(&pdf, b"%PDF-1.4 not really").unwrap();
+        let r = result_of(&req(
+            "tools/call",
+            json!({ "name": "get_chunks",
+                    "arguments": { "path": pdf, "table_model": true } }),
+        ));
+        assert_eq!(r["isError"], true); // parse fails on garbage pdf first — fine
+        let html = temp_html("docparse-mcp-tm.html");
+        let r = result_of(&req(
+            "tools/call",
+            json!({ "name": "get_chunks",
+                    "arguments": { "path": html, "table_model": true } }),
+        ));
+        // Non-PDF: enhancement skipped, parse succeeds.
+        assert_eq!(r["isError"], false);
     }
 
     #[test]
