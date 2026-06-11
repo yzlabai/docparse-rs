@@ -144,7 +144,7 @@ Show strings of embedded subset CID fonts are glyph indices — unreadable witho
 - [x] **N4 (bulk)**: four table detectors (bordered → ruled → cluster → borderless), heading levels, word spacing.
 - [x] **N5 security & profiling**: hidden-text filtering (Tr 3/7 / off-page / tiny fonts → flagged + excluded + auditable), zip-bomb / page-count guards, per-page complexity profile (`--profile`).
 - [x] **Phase 4 (main body, 2026-06-11)**: format parity 3→11 (XLSX/PPTX/MD/CSV/SRT·VTT/LaTeX/EML/PNG·JPEG images-as-documents), the full G9 structure layer (TEDS gate passed), **embedded table/formula models** (`--table-model`/`--formula-model`, UniRec-0.1B on tract — in-process merged-cell semantics and formula→LaTeX), VLM service tasks (`--vlm-describe/--vlm-tables`, OpenAI-compatible, fully optional), image export/embed (`--image-dir`/`--image-embed`), full MCP/REST enhancement passthrough, Python client + LangChain/LlamaIndex loaders (five-line acceptance verified), stress + fuzzing (1847 inputs + ~10.2M executions, zero panics), IR 0.7.0 (cell span semantics). See the [iteration plan](docs/plans/closing-docling-gaps.md) (Chinese).
-- [ ] **Pending external input**: PyPI/crates.io publishing (on hold), thousand-doc arXiv stress / 24h fuzz, JATS/RTL (on demand).
+- [ ] **Phase 5 (next)**: robustness depth — CCITT scan decoding, rotation correction, two-column left-column reflow, exact-APTED eval, hidden-text blind spots; see [hardening-iteration.md](docs/plans/hardening-iteration.md) (Chinese).
 
 ## License
 

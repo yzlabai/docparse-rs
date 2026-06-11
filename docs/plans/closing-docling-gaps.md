@@ -2,6 +2,8 @@
 
 > 依据:[refer/docling-objective-comparison.md](../refer/docling-objective-comparison.md) 的诚实清单——逐条映射成里程碑。承接 [next-iteration.md](next-iteration.md)(N1–N6 已收官)。
 >
+> **状态(2026-06-11):可自主项全部收官**;健壮性纵深与质量债转入 **Phase 5**:[hardening-iteration.md](hardening-iteration.md)(H1–H7)。
+>
 > **边界(2026-06-10 定位修订)**:纯 Rust/确定性核心独立/模型可插拔不动;"不光栅化"改述为"**主流程不渲染像素;难页 AI 增强可按需用纯 Rust 工具渲染该页(默认关闭)**"——以"速度快、质量好"的产品定位为准。补差距的手段分三层——**确定性可自研的直接做**(格式广度/区域 OCR/Form 流/代码块检测),**小模型沿 N3 已验证的 P4 模式内嵌**(tract + 外部 ONNX,先 spike 门控),**重模型/VLM 经 G8 语义增强面接入**(HTTP 外接先行,纯 Rust 运行时内嵌后探)。显式不追仅剩:GPU、为格式数铺长尾货。
 
 ## 0. 差距 → 里程碑映射
