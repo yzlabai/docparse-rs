@@ -54,6 +54,10 @@ claude mcp add docparse -- /path/to/docparse mcp
 
 # REST:
 curl -F "file=@doc.pdf" "http://127.0.0.1:8642/parse?format=chunks&ocr=true"
+
+# Python / LangChain (clients/python, zero-dependency thin client):
+#   from docparse_client.langchain import DocparseLoader
+#   docs = DocparseLoader("paper.pdf").load()   # one Document per chunk, page+bbox metadata
 ```
 
 OCR models (optional, three files, ~16 MB, Apache-2.0) go in `models/ppocr/`: `ch_PP-OCRv4_det_infer.onnx` + `ch_PP-OCRv4_rec_infer.onnx` (HuggingFace `SWHL/RapidOCR`) + `ppocr_keys_v1.txt` (PaddleOCR repo).

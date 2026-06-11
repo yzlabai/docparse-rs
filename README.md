@@ -54,6 +54,10 @@ claude mcp add docparse -- /path/to/docparse mcp
 
 # REST：
 curl -F "file=@doc.pdf" "http://127.0.0.1:8642/parse?format=chunks&ocr=true"
+
+# Python / LangChain（clients/python，零依赖薄客户端）：
+#   from docparse_client.langchain import DocparseLoader
+#   docs = DocparseLoader("paper.pdf").load()   # 每 chunk 一个 Document，metadata 带 page+bbox
 ```
 
 OCR 模型（可选，三个文件 ~16MB，Apache-2.0）放 `models/ppocr/`：`ch_PP-OCRv4_det_infer.onnx` + `ch_PP-OCRv4_rec_infer.onnx`（HuggingFace `SWHL/RapidOCR`）+ `ppocr_keys_v1.txt`（PaddleOCR 仓库）。
