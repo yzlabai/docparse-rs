@@ -121,12 +121,12 @@ struct Cli {
     #[arg(long)]
     vlm_tables: bool,
 
-    /// OpenAI-compatible service base URL (vLLM / Ollama / LM Studio / cloud),
-    /// e.g. http://127.0.0.1:11434
+    /// OpenAI-compatible service base URL (vLLM / LM Studio / cloud),
+    /// e.g. http://127.0.0.1:8000
     #[arg(long)]
     vlm_url: Option<String>,
 
-    /// Vision model name as the service knows it (e.g. qwen2.5vl, llava).
+    /// Vision model name as the service knows it.
     #[arg(long)]
     vlm_model: Option<String>,
 

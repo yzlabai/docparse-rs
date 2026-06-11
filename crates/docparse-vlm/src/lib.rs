@@ -1,6 +1,6 @@
 //! VLM enhancer over OpenAI-compatible services (plan G8b).
 //!
-//! One protocol covers vLLM, Ollama, LM Studio and cloud endpoints:
+//! One protocol covers vLLM, LM Studio and cloud endpoints:
 //! `POST {url}/v1/chat/completions` with a base64 PNG data-URL image. The
 //! deterministic pipeline never depends on this — tasks are opt-in per call,
 //! results come back as [`TextChunk`]s with `source: "vlm:<model>"` and
@@ -33,9 +33,9 @@ const DESCRIBE_PROMPT: &str = "Describe this figure from a document in one or tw
 
 #[derive(Debug, Clone)]
 pub struct VlmConfig {
-    /// Service base URL, e.g. `http://127.0.0.1:11434` (Ollama) or a vLLM host.
+    /// Service base URL, e.g. a vLLM / LM Studio / cloud host.
     pub url: String,
-    /// Model name as the service knows it, e.g. `qwen2.5vl` / `llava`.
+    /// Model name as the service knows it, as the service knows it.
     pub model: String,
     pub api_key: Option<String>,
 }

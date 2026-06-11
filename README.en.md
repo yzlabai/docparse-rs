@@ -42,7 +42,7 @@ Clean documents score 0.94–1.00 (structurally isomorphic with both references)
 | Table structure (merged cells) | four deterministic detectors + **embedded 0.1B model** (rowspan/colspan in the IR, opt-in) | TableFormer (neural, built-in) | deterministic (flat grid) | basic |
 | Formula → LaTeX | `--formula-model` (embedded) | yes (model) | — | — |
 | OCR | in-process `tract` (PP-OCR), **zero model cost on digital pages**; full-page transcription tier | multi-engine, model on every page | hybrid mode (external) | plugin |
-| VLM/LLM enrichment | OpenAI-compatible services (vLLM/Ollama), per-task opt-in | built-in + serve ecosystem | hybrid (docling backend) | optional LLM captions |
+| VLM/LLM enrichment | OpenAI-compatible services (vLLM 等), per-task opt-in | built-in + serve ecosystem | hybrid (docling backend) | optional LLM captions |
 | Agent surfaces | **CLI/lib/MCP/REST byte-identical** + Python client + LangChain/LlamaIndex loaders | SDK + mature ecosystem | CLI/Java/Python | CLI/lib |
 | Born-digital speed | **<10ms warm parse, ~700 pages/s** | seconds/page | fast | fast |
 | License | Apache-2.0 (models included) | MIT (some model licenses separate) | Apache-2.0 | MIT |
@@ -59,8 +59,8 @@ cargo build --release
 ./target/release/docparse input.pdf -f chunks      # RAG chunks (page + bbox + breadcrumbs)
 ./target/release/docparse scan.pdf --ocr           # OCR scans (needs models/ppocr; free for digital pages)
 ./target/release/docparse hard.pdf --layout        # layout-model macro reading order (needs models/layout, opt-in)
-./target/release/docparse doc.pdf --vlm-describe --vlm-url http://127.0.0.1:11434 --vlm-model qwen2.5vl   # VLM figure captions
-./target/release/docparse doc.pdf --vlm-tables --vlm-url http://127.0.0.1:11434 --vlm-model qwen2.5vl     # VLM table re-extraction (merged cells / multi-row headers); failures keep the deterministic grid
+./target/release/docparse doc.pdf --vlm-describe --vlm-url http://127.0.0.1:8000 --vlm-model <vision-model>   # VLM figure captions
+./target/release/docparse doc.pdf --vlm-tables --vlm-url http://127.0.0.1:8000 --vlm-model <vision-model>     # VLM table re-extraction (merged cells / multi-row headers); failures keep the deterministic grid
 ./target/release/docparse doc.pdf --table-model models/unirec   # embedded UniRec-0.1B table re-extraction (merged cells), in-process, no service
 ./target/release/docparse doc.pdf --formula-model models/unirec # formula -> LaTeX (YOLO finds formula regions + UniRec reads them; needs models/layout)
 ./target/release/docparse doc.pdf --transcribe-model models/unirec # full-page transcription (high-quality tier for zh/en hard layouts & scans; region-level positions)
@@ -113,7 +113,7 @@ A Cargo workspace with seventeen crates:
 | `docparse-{xlsx,pptx,md,csv,srt,tex}` | Thin backends: XLSX (calamine) / PPTX (one page per slide) / Markdown / CSV (hand-rolled RFC-4180 subset) / SRT·WebVTT subtitles (one timestamped paragraph per cue) / LaTeX source subset (sections/lists/tabular→Table) / EML email (headers/body/attachment listing) / PNG·JPEG images-as-documents (riding the OCR route) / AsciiDoc subset — all flow into the same IR via the synthetic layout | calamine, quick-xml, pulldown-cmark, mail-parser, zune-png |
 | [`docparse-ocr`](crates/docparse-ocr) | ONNX-embedded enhancers: OCR (PP-OCRv4 det+rec, self-built DBNet post-processing / CTC decoding) and layout (DocLayout-YOLO regions → reading groups), both on `tract` pure-Rust inference | tract-onnx, zune-jpeg |
 | [`docparse-raster`](crates/docparse-raster) | On-demand hard-page rendering (pure-Rust `hayro`, ~100ms/page) — the main pipeline never renders; enhancer-routed pages only, opt-in, with a broken-render guard | hayro |
-| [`docparse-vlm`](crates/docparse-vlm) | VLM enhancer: picture description & friends over OpenAI-compatible services (vLLM/Ollama/LM Studio), minimal built-in PNG encoder, graceful degradation | ureq, base64 |
+| [`docparse-vlm`](crates/docparse-vlm) | VLM enhancer: picture description & friends over OpenAI-compatible services (vLLM/LM Studio 等), minimal built-in PNG encoder, graceful degradation | ureq, base64 |
 | [`docparse-cli`](crates/docparse-cli) | The `docparse` CLI + an **MCP stdio server** (hand-written JSON-RPC, no SDK dependency) + **REST** (axum) | clap, axum, tokio |
 
 **Why this layering**: `core` depends on no PDF library — reading order and output are format-agnostic. Adding a format means implementing the `DocumentParser` trait plus one registry line in the CLI; models never enter the core and attach per page through the `Enhancer` boundary.
@@ -143,8 +143,8 @@ Show strings of embedded subset CID fonts are glyph indices — unreadable witho
 - [x] **N3 real enhancer**: ONNX-embedded OCR (PP-OCRv4 × `tract`, pure Rust) — `chinese_scan` goes from 0 text to **14/14 lines correct** with bbox citations; MCP/REST pass-through; digital pages stay model-free.
 - [x] **N4 (bulk)**: four table detectors (bordered → ruled → cluster → borderless), heading levels, word spacing.
 - [x] **N5 security & profiling**: hidden-text filtering (Tr 3/7 / off-page / tiny fonts → flagged + excluded + auditable), zip-bomb / page-count guards, per-page complexity profile (`--profile`).
-- [x] **Phase 4 (main body, 2026-06-11)**: format parity 3→11 (XLSX/PPTX/MD/CSV/SRT·VTT/LaTeX/EML/PNG·JPEG images-as-documents), the full G9 structure layer (TEDS gate passed), **embedded table/formula models** (`--table-model`/`--formula-model`, UniRec-0.1B on tract — in-process merged-cell semantics and formula→LaTeX), VLM service tasks (`--vlm-describe/--vlm-tables`, OpenAI-compatible: vLLM/Ollama), image export/embed (`--image-dir`/`--image-embed`), full MCP/REST enhancement passthrough, Python client + LangChain/LlamaIndex loaders (five-line acceptance verified), stress + fuzzing (1847 inputs + ~10.2M executions, zero panics), IR 0.7.0 (cell span semantics). See the [iteration plan](docs/plans/closing-docling-gaps.md) (Chinese).
-- [ ] **Pending external input**: PyPI/crates.io publishing, real-service acceptance against Ollama, thousand-doc arXiv stress / 24h fuzz, AsciiDoc/JATS/RTL (on demand).
+- [x] **Phase 4 (main body, 2026-06-11)**: format parity 3→11 (XLSX/PPTX/MD/CSV/SRT·VTT/LaTeX/EML/PNG·JPEG images-as-documents), the full G9 structure layer (TEDS gate passed), **embedded table/formula models** (`--table-model`/`--formula-model`, UniRec-0.1B on tract — in-process merged-cell semantics and formula→LaTeX), VLM service tasks (`--vlm-describe/--vlm-tables`, OpenAI-compatible, fully optional), image export/embed (`--image-dir`/`--image-embed`), full MCP/REST enhancement passthrough, Python client + LangChain/LlamaIndex loaders (five-line acceptance verified), stress + fuzzing (1847 inputs + ~10.2M executions, zero panics), IR 0.7.0 (cell span semantics). See the [iteration plan](docs/plans/closing-docling-gaps.md) (Chinese).
+- [ ] **Pending external input**: PyPI/crates.io publishing (on hold), thousand-doc arXiv stress / 24h fuzz, JATS/RTL (on demand).
 
 ## License
 

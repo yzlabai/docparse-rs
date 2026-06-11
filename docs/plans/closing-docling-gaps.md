@@ -85,19 +85,19 @@
 五项全要(用户决策 2026-06-10,推翻初版"不做"),但按"确定性 → 外接 → 内嵌"三层走,不一步跳到重模型:
 
 - [x] **G8a 代码块检测 ✅**(2026-06-10,[devlog](../devlogs/2026-06-10-g8a-code-blocks.md)):等宽字体名(G2 铺路的 PS 真名)→ 行成组(豁免散文门)→ `Block.code` + 几何缩进重建 → Markdown fenced + chunk kind `code`。code_and_formula 端到端正确,记分牌零回归。
-- [~] **G8b VLM enhancer:OpenAI 兼容服务接入** · 🚧 首增量完成(2026-06-10,[devlog](../devlogs/2026-06-10-g8b-vlm-client.md)):`docparse-vlm` crate(协议 mock 单测锁定)+ **图片描述任务**端到端(渲染裁剪→降采样→注入带 source 的位置文本);服务降级不破解析。**第二任务 `--vlm-tables` ✅**(2026-06-11,[devlog](../devlogs/2026-06-11-vlm-tables.md)):`refine_tables` 对已检出表渲染区域→VLM 出 TSV→合格(≥2×2、非散文)才替换网格,`Table.source: "vlm:<model>"` 溯源(IR 新字段),失败保底确定性网格;本地 mock 服务全链路 e2e 过。余项:真实服务实测回填(候 Ollama)、图表→表格、整页转写、页型判官(公式已由 G8c `--formula-model` 内嵌收口;**MCP/REST 透传 ✅** 2026-06-11,[devlog](../devlogs/2026-06-11-serving-enhancements.md):EnhanceState/Opts 两面共用,tool 参数/查询参数透传全部增强开关,UniRec 服务级懒加载一次,活进程 e2e 双过)。原设计如下:
-  - **协议**:`/v1/chat/completions` + 图像输入(base64 data URL)——一个协议通吃 vLLM(Qwen2.5-VL/MiniCPM-V 等)、Ollama(qwen2.5-vl/llava 等)、LM Studio 与 OpenAI 系云端;docling-serve 作可选第二后端类型。
+- [~] **G8b VLM enhancer:OpenAI 兼容服务接入** · 🚧 首增量完成(2026-06-10,[devlog](../devlogs/2026-06-10-g8b-vlm-client.md)):`docparse-vlm` crate(协议 mock 单测锁定)+ **图片描述任务**端到端(渲染裁剪→降采样→注入带 source 的位置文本);服务降级不破解析。**第二任务 `--vlm-tables` ✅**(2026-06-11,[devlog](../devlogs/2026-06-11-vlm-tables.md)):`refine_tables` 对已检出表渲染区域→VLM 出 TSV→合格(≥2×2、非散文)才替换网格,`Table.source: "vlm:<model>"` 溯源(IR 新字段),失败保底确定性网格;本地 mock 服务全链路 e2e 过。余项:真实服务实测(按需,接任意 OpenAI 兼容服务)、图表→表格、整页转写、页型判官(公式已由 G8c `--formula-model` 内嵌收口;**MCP/REST 透传 ✅** 2026-06-11,[devlog](../devlogs/2026-06-11-serving-enhancements.md):EnhanceState/Opts 两面共用,tool 参数/查询参数透传全部增强开关,UniRec 服务级懒加载一次,活进程 e2e 双过)。原设计如下:
+  - **协议**:`/v1/chat/completions` + 图像输入(base64 data URL)——一个协议通吃 vLLM(Qwen2.5-VL/MiniCPM-V 等)、LM Studio 与 OpenAI 系云端;docling-serve 作可选第二后端类型。
   - **配置**:`--vlm-url --vlm-model [--vlm-api-key]`(env 等价物),MCP/REST 透传开关;按任务的 prompt 模板内置(公式→LaTeX / 图片分类+描述 / 图表→表格 / 整页转写),结果归一回 IR 带 `source: "vlm:<model>"` + 低 confidence。
   - **图像来源(身份不破的部分)**:born-digital 的图片**多数本来就是嵌入光栅**——把现有 ImageXObject 解码门改为"VLM 任务开启时按需解码区域图",照片/图表/示意图直接喂 VLM,无需渲染;扫描页用已有位图裁剪。矢量内容(公式/矢量图)仍卡在 G8c 的合成栅格决策点。
   - **成本边界**:任务级 opt-in(默认全关)、按元素触发、并发与超时上限;数字纯文本页零外呼。
   - **依赖征询:HTTP 客户端(`ureq` 倾向,同步轻量)+ base64**。
-  - **验收**:Ollama 本地(如 qwen2.5-vl)与 vLLM 各跑通一例图片描述+图表→表格;断网/服务缺失优雅降级(确定性结果不受影响)。
+  - **验收**:OpenAI 兼容服务跑通图片描述+图表→表格各一例(按需);断网/服务缺失优雅降级(确定性结果不受影响)。
 - [~] **G8c 选择性 ONNX 内嵌(spike 门控,P4 模式)**:
   - [x] **公式→LaTeX ✅**(2026-06-11,[devlog](../devlogs/2026-06-11-formula-model.md)):`--formula-model`——DocLayout-YOLO 检 `isolate_formula` 区(class 8)→ UniRec 出 LaTeX → 替换区域内字形汤(`source: "formula:unirec-0.1b"`、tag Formula)。验收样例:基线 "2a + 8 = 12"(上标漂移)→ `\[a^{2}+8=12\]` 正确;LaTeX 防劣化门(须含数学记号、拒表格/散文);默认路径零变化。PP-FormulaNet 不再需要;
   - 图片分类:小 CNN 分类器(图表/照片/示意图)× tract spike;
   - ⚠️ **身份约束决策点**:这些模型吃**区域图**。扫描页区域可从位图裁剪(不破身份);**born-digital 的公式/图是矢量,喂模型必须合成栅格**——是否为"enhancer-only 合成栅格"开例外(主流程仍不渲染),**需用户拍板**;不开例外则 born-digital 区域走 G8b HTTP。
-  - [~] **G8d 整页转写**:**内嵌增量 ✅**(2026-06-11,[devlog](../devlogs/2026-06-11-transcribe-model.md)):`--transcribe-model`——YOLO 分区+XY-cut 区序+逐区 UniRec,替换文本层(区域级定位,opt-in)。**域边界实测**:中英域内质量优于 PP-OCR(标点更准);**韩文(评测集的 CJK 缺口恰全是韩文)域外**——幻觉复读循环被新增的**退化守卫**(`looks_degenerate`,周期重复检测,表/公式路径同享)全量拦截,旗标域外安全无害化(NID 逐字不变)。⚠️ 结论:评测集的 CJK 缺口需要韩文能力——仍属 VLM 服务域(Qwen2.5-VL 级,候 Ollama)或换多语种小模型;UniRec 路线对此明确不适用,记录在案。
-- **验收**:G8a 代码块在 `code_and_formula` 样例正确标注;G8b 对 Ollama 与 vLLM 各端到端一例(图片描述/图表→表格),数字纯文本页零外呼;G8c 以 spike 结论定去留;G8d 以服务化为主、内嵌 spike 远期。
+  - [~] **G8d 整页转写**:**内嵌增量 ✅**(2026-06-11,[devlog](../devlogs/2026-06-11-transcribe-model.md)):`--transcribe-model`——YOLO 分区+XY-cut 区序+逐区 UniRec,替换文本层(区域级定位,opt-in)。**域边界实测**:中英域内质量优于 PP-OCR(标点更准);**韩文(评测集的 CJK 缺口恰全是韩文)域外**——幻觉复读循环被新增的**退化守卫**(`looks_degenerate`,周期重复检测,表/公式路径同享)全量拦截,旗标域外安全无害化(NID 逐字不变)。⚠️ 结论:评测集的 CJK 缺口需要韩文能力——需多语种能力——按需外接 OpenAI 兼容服务(Qwen2.5-VL 级)或换多语种小模型;UniRec 路线对此明确不适用,记录在案。
+- **验收**:G8a 代码块在 `code_and_formula` 样例正确标注;G8b 接任意 OpenAI 兼容服务端到端(图片描述/图表→表格,按需),数字纯文本页零外呼;G8c 以 spike 结论定去留;G8d 以服务化为主、内嵌 spike 远期。
 
 ### G9 · 对齐 ODL 结构层:Tagged PDF / 列表 / 标题层级 / 表覆盖 — *模块 2、4* · 确定性自研
 2026-06-10 与 ODL 的逐项差距盘点(Form 流解释后)落项:四块全部确定性可达,无模型依赖。
@@ -115,7 +115,7 @@
 flowchart LR
   G2[G2 版面 enhancer<br/>质量上限] --> G3[G3 表结构]
   G8a[G8a 代码块·确定性] 
-  G8b[G8b VLM 服务接入<br/>vLLM/Ollama·OpenAI 兼容] --> G8c[G8c 选择性内嵌 spike]
+  G8b[G8b VLM 服务接入<br/>OpenAI 兼容·可选] --> G8c[G8c 选择性内嵌 spike]
   G8b --> G8d[G8d 整页 VLM·服务化为主]
   G1[G1 XLSX/PPTX<br/>广度]
   G4[G4 OCR 长尾]
@@ -132,10 +132,10 @@ flowchart LR
 | G6 生态 | 可见度/采用率 | 无技术风险 | PyPI 侧 |
 | G7 鲁棒 | "成熟度"差距唯一解法 | 跑批时间 | cargo-fuzz(dev) |
 | G5 RTL | 按需 | 需求未证实 | unicode-bidi |
-| G8 语义增强面 | 五项能力(用户点名) | G8b(OpenAI 兼容,vLLM/Ollama)低险先行;G8c 有身份决策点;G8d 主走服务化 | ureq+base64(G8b)/candle(G8d 远期可选) |
+| G8 语义增强面 | 五项能力(用户点名) | G8b(OpenAI 兼容)低险先行;G8c 有身份决策点;G8d 主走服务化 | ureq+base64(G8b)/candle(G8d 远期可选) |
 | **G9 ODL 结构层** | MHS/TEDS 直接受益;tagged=免费真值 | G9a 解析活低险;G9d 受 P1c 教训约束 | 无 |
 
-**建议次序(2026-06-10 更新,G2/G3/G4/G1a/G8a/G8b 首增量已完成)**:**G9a Tagged PDF → G9c 标题分级 → G9b 列表** (结构层三连,MHS 直接受益)→ G9d 表覆盖(小步)→ G1b 长尾格式 → G7 压测;G8b 余项与 `--vlm-tables` 等 Ollama 环境就绪后一并实测。每里程碑照 SDD:plan 已有(本文),完成回填 devlog + testresults,记分牌即验收门。
+**建议次序(2026-06-10 更新,G2/G3/G4/G1a/G8a/G8b 首增量已完成)**:**G9a Tagged PDF → G9c 标题分级 → G9b 列表** (结构层三连,MHS 直接受益)→ G9d 表覆盖(小步)→ G1b 长尾格式 → G7 压测;G8b 余项按需实测(任意 OpenAI 兼容服务)。每里程碑照 SDD:plan 已有(本文),完成回填 devlog + testresults,记分牌即验收门。
 
 ## 3. 显式不做(守住定位)
 
