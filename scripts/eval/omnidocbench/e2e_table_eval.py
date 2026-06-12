@@ -15,7 +15,7 @@ ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "eval"))
 sys.path.insert(0, HERE)
 import score as S
-from table_eval import html_to_cells, IMGDIR, HF, JSON
+from table_eval import html_to_cells, strip_math, IMGDIR, HF, JSON
 
 BIN = os.path.join(ROOT, "target/release/docparse")
 MODEL = os.path.join(ROOT, "models/unirec")
@@ -59,8 +59,12 @@ def wrap_pdf(image_path):
 
 
 def ir_table_cells(t):
+    # strip_math mirrors the GT side (html_to_cells): UniRec keeps inline math
+    # delimiters (\(...\)) in cells while the GT had them stripped, so without
+    # this every math-containing cell falsely mismatches (eval asymmetry, B1).
     rows = t["rows"]
-    cells = [[r, c, cell.get("row_span", 1), cell.get("col_span", 1), S._norm(cell.get("text", ""))]
+    cells = [[r, c, cell.get("row_span", 1), cell.get("col_span", 1),
+              S._norm(strip_math(cell.get("text", "")))]
              for r, row in enumerate(rows) for c, cell in enumerate(row) if not cell.get("merged")]
     return {"rows": len(rows), "cols": max((len(r) for r in rows), default=0), "cells": cells}
 

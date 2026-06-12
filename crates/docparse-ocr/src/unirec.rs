@@ -31,6 +31,13 @@ const MAX_SIDE: (usize, usize) = (960, 1408);
 const DIV: usize = 64;
 /// M2M100-style positions start after the padding index.
 const PADDING_IDX: i64 = 1;
+/// Runaway-salvage loop guard (B2): on a decode that hit the token cap without
+/// EOS, find the repeating tail block (period ≤[`LOOP_MAX_PERIOD`]) once it has
+/// repeated this many times and trim it. Applied only to confirmed runaways, so
+/// a low threshold is safe — a self-terminating table is never inspected.
+const LOOP_MIN_REPEATS: usize = 4;
+/// Longest repeating block (in tokens) the loop guard scans for.
+const LOOP_MAX_PERIOD: usize = 24;
 
 pub struct UniRec {
     encoder: Runnable,
@@ -126,6 +133,7 @@ impl UniRec {
 
         let mut token = self.bos;
         let mut ids = Vec::with_capacity(max_tokens);
+        let mut hit_eos = false;
         for step in 0..max_tokens {
             let input_ids = Tensor::from_shape(&[1, 1], &[token])?;
             let pos = Tensor::from_shape(&[1, 1], &[PADDING_IDX + 1 + step as i64])?;
@@ -156,6 +164,7 @@ impl UniRec {
             }
             token = best as i64;
             if token == self.eos {
+                hit_eos = true;
                 break;
             }
             ids.push(token);
@@ -164,6 +173,19 @@ impl UniRec {
                     out[1 + i * 2].clone().into_tensor(),
                     out[2 + i * 2].clone().into_tensor(),
                 );
+            }
+        }
+
+        // Salvage autoregressive degeneration, but ONLY on a runaway: a decode
+        // that reached the token cap WITHOUT emitting EOS is the model stuck in
+        // a repetition loop (B2). A self-terminating answer (hit_eos) is trusted
+        // verbatim — so a well-formed table, even one with a column of identical
+        // cells, is never trimmed. When runaway, cut the repeating tail and keep
+        // the good prefix instead of letting `looks_degenerate` drop the whole
+        // answer (which scored these academic tables at ~0).
+        if !hit_eos {
+            if let Some(keep) = loop_trim_len(&ids, LOOP_MIN_REPEATS) {
+                ids.truncate(keep);
             }
         }
 
@@ -229,6 +251,34 @@ pub fn looks_degenerate(text: &str) -> bool {
     false
 }
 
+/// Detect a sustained verbatim repetition loop at the tail of the generated
+/// token sequence. For each period `p` (1..=[`LOOP_MAX_PERIOD`]), count how
+/// many identical `p`-token blocks end the sequence; if that count reaches
+/// `min_repeats`, return the length to KEEP — the prefix plus exactly ONE copy
+/// of the block (the runaway repeats are dropped). `None` when no loop is found.
+///
+/// Requiring many *identical* consecutive blocks is what makes this safe for
+/// structured HTML output: a normal table's `</td><td>` repeats structurally
+/// but the cell contents between the tags differ, so its blocks are not
+/// identical and never accumulate to `min_repeats`.
+fn loop_trim_len(ids: &[i64], min_repeats: usize) -> Option<usize> {
+    let n = ids.len();
+    for p in 1..=LOOP_MAX_PERIOD {
+        if p * min_repeats > n {
+            break;
+        }
+        let last = &ids[n - p..];
+        let mut reps = 1usize;
+        while (reps + 1) * p <= n && &ids[n - (reps + 1) * p..n - reps * p] == last {
+            reps += 1;
+        }
+        if reps >= min_repeats {
+            return Some(n - (reps - 1) * p);
+        }
+    }
+    None
+}
+
 /// Aspect-preserving fit into [`MAX_SIDE`], floored to /64 alignment (≥64).
 fn target_size(w: usize, h: usize) -> (usize, usize) {
     let (max_w, max_h) = MAX_SIDE;
@@ -278,6 +328,29 @@ mod tests {
             "本公司成立于2020年，是一家专注于人工智能技术研发的高科技企业。公司总部位于北京，在上海、深圳设有分支机构。主要业务领域包括自然语言处理、计算机视觉与机器学习平台。"
         ));
         assert!(!looks_degenerate("short"));
+    }
+
+    #[test]
+    fn loop_trim_rescues_degenerate_tail() {
+        // Good prefix then a 3-token block repeated 10× → keep prefix + 1 copy.
+        let mut ids: Vec<i64> = vec![10, 11, 12, 13, 14];
+        for _ in 0..10 {
+            ids.extend_from_slice(&[7, 8, 9]);
+        }
+        let keep = loop_trim_len(&ids, LOOP_MIN_REPEATS).expect("loop detected");
+        assert_eq!(&ids[..keep], &[10, 11, 12, 13, 14, 7, 8, 9]);
+
+        // A real table's blocks differ between cells (only the tags repeat) →
+        // no verbatim block reaches the repeat threshold → not trimmed.
+        let table: Vec<i64> = (0..200).map(|i| [1i64, 2, (i % 37) + 100][i as usize % 3]).collect();
+        assert!(loop_trim_len(&table, LOOP_MIN_REPEATS).is_none());
+
+        // Fewer than min_repeats copies is left alone (legit short repetition).
+        let mut few: Vec<i64> = vec![1, 2, 3];
+        for _ in 0..3 {
+            few.extend_from_slice(&[4, 5]);
+        }
+        assert!(loop_trim_len(&few, LOOP_MIN_REPEATS).is_none());
     }
 
     #[test]
