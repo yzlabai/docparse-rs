@@ -29,6 +29,8 @@
 
 `TEDS_X` 是 span 感知表树上的精确 Zhang-Shasha 树编辑距离（Phase 5/H5）——奖励代理列压扁掉的合并格结构,代理列保留对照。clean 文档 0.94–1.00（与两者结构同构）；聚合被 CJK 复杂版面与图内嵌表 recall 拖低——逐轴对比、口径与边界详见 [综合测评](docs/testresults/2026-06-10-benchmark-roundup.md)。
 
+**第二记分牌——人工真值（OmniDocBench,模型路径）。** 上面的一致度记分牌与压扁口径的参照输出比,反噬模型真实的合并格结构。在 [OmniDocBench](https://github.com/opendatalab/OmniDocBench)（CVPR 2025,人工 HTML 真值含真实 span——正是 OpenDoc-0.1B/UniRec 报 90.57% 的 benchmark）上,我们内嵌的 UniRec 表识别 **mean TEDS_X 0.810 / median 0.895**（80 表）。同一个模型在 Docling 压扁口径下只读到 0.526——0.526 是口径假象,0.810 才是真实表识别能力。详见 [OmniDocBench 表格评测](docs/testresults/2026-06-12-omnidocbench-table.md)。
+
 ## 与同类产品对比
 
 > 诚实口径：各家定位不同，下表按"agent/RAG 消费文档"的视角对齐维度；对方占优处照写。详细分析见 [docs/refer/docling-objective-comparison.md](docs/refer/docling-objective-comparison.md)。
