@@ -37,12 +37,14 @@ OmniDocBench 按 10 类文档分别报分;**学术论文**(`academic_literature`
 
 | 维度 | 论文子集 | 全集对照 | 解读 |
 |---|---|---|---|
+| 文本 `--transcribe-model`(UniRec) | **0.872** | — | UniRec 整页转写,接近论文级 |
 | 公式(LaTeX-sim) | **0.874** | 0.708 | 论文公式规整标准,UniRec 强项 |
 | 表(TEDS_X) | **0.517** | 0.810 | 论文学术表最难(多级表头/密集数字/含 LaTeX),全集被书报简单表抬高 |
-| 文本 `--transcribe-model`(UniRec) | **0.630** | — | UniRec 整页转写 |
 | 文本 `--ocr`(PP-OCRv4 mobile) | 0.440 | 0.423 | 轻量档,作对照 |
 
-**文本两档的差距是重点**:`--ocr`(16MB mobile)0.44 vs `--transcribe-model`(UniRec)0.63——和 OpenDoc-0.1B 同源的 UniRec 文本路径显著更强,这才是对标 leaderboard 的公平基准。
+**文本两档差距是重点**:`--ocr`(16MB mobile)0.44 vs `--transcribe-model`(UniRec)**0.872**——和 OpenDoc-0.1B 同源的 UniRec 文本路径强得多,这才是对标 leaderboard 的公平基准。
+
+> ⚠️ 评测自审修正(2026-06-12 review):transcribe 文本初测 0.630 是**方法学低估**——① `--transcribe-model` 输出含 GT readable 不含的显示公式 `\[...\]`(纯插入惩罚);② 行内数学 GT 用 `$`、pred 用 `\(` 而归一化未统一定界符。修脚本(剥离 pred 显示公式 + 统一数学定界符)后得 **0.872**。同 review 还修了 `norm_latex` 误伤(`\leftarrow`→`arrow`,双边一致故公式均值不变)。
 
 ## 3c. 官方端到端 Overall(参考基准)
 
@@ -59,9 +61,9 @@ OmniDocBench 官方 leaderboard 的端到端 **Overall**(0–100,越高越好)= 
 | Marker | 管线工具 | 78.44 |
 
 **我们的粗略量级**(论文子集,套官方公式;⚠️ **口径示意非官方端到端分**——分维度相似度代理 + 小子集 + 表/公式为单模块、文本为 transcribe 整页,**不可与上表逐位比**):
-`(text 63.0 + table 51.7 + formula 87.4) / 3 ≈ **67**`。
+`(text 87.2 + table 51.7 + formula 87.4) / 3 ≈ **75**`。
 
-诚实定位:**公式接近论文级(0.87),文本用 UniRec 也不弱(0.63),整体被论文难表(0.52)与管线损耗拉到 ~67 量级,低于 leaderboard 顶部(90+)**。差距来源清楚:① 我们 ≠ OpenDoc 完整系统(它 PP-DocLayoutV2 检测 + UniRec 全栈端到端;我们 DocLayout-YOLO + 分任务重抽 + 自写拼接);② 我们是 **born-digital 优先**,图像文档是补充域;③ 论文学术表是公认最难项。**要逼近 leaderboard 需要端到端 VLM 式管线**(可插拔域),非确定性核心的目标。
+诚实定位:**文本(0.87)与公式(0.87)都接近论文级,整体被论文难表(0.52)拉到 ~75 量级**,低于 leaderboard 顶部(90+)。差距来源清楚:① **论文学术表是公认最难项**(我们端到端检测+识别在多级表头/含公式的密集表上掉),是主要短板;② 我们 ≠ OpenDoc 完整系统(它 PP-DocLayoutV2 + UniRec 全栈端到端;我们 DocLayout-YOLO + 分任务重抽 + 自写拼接);③ 我们 **born-digital 优先**,图像文档是补充域。**文本/公式已不是短板**(用 `--transcribe-model` 都 ~0.87);要逼近 leaderboard 主要差在难表 + 端到端管线打磨。
 
 ## 4. 决定性结论
 

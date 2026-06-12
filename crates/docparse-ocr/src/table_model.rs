@@ -72,12 +72,8 @@ pub fn refine_tables(doc: &mut Document, pdf_bytes: Vec<u8>, model: &UniRec) -> 
             }
         }
     }
-    // Drop layout-seeded placeholders the model couldn't fill (still empty) —
-    // an unrecognized table region shouldn't surface as an empty table.
-    for page in &mut doc.pages {
-        page.elements
-            .retain(|e| !matches!(e, Element::Table(t) if t.rows.is_empty()));
-    }
+    // Note: empty-row placeholders the model couldn't fill are cleaned up by
+    // the caller after all enhancers (covers --layout without --table-model too).
     Ok(refined)
 }
 

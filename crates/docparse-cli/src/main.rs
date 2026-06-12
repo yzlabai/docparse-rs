@@ -250,6 +250,17 @@ impl OcrState {
 }
 
 /// Run quality-routed enhancement over a parsed document (shared by all faces).
+/// Remove empty-row table placeholders (a `--layout`-seeded table region no
+/// model filled, or `--table-model` not run). Called after ALL enhancers so
+/// every output face is consistent — including `-f json`, which serializes
+/// `page.elements` directly and otherwise leaks `{"type":"table","rows":[]}`.
+fn drop_empty_table_placeholders(doc: &mut docparse_core::ir::Document) {
+    for page in &mut doc.pages {
+        page.elements
+            .retain(|e| !matches!(e, docparse_core::ir::Element::Table(t) if t.rows.is_empty()));
+    }
+}
+
 pub(crate) fn apply_ocr(
     doc: docparse_core::ir::Document,
     ocr: &docparse_ocr::PpOcrEnhancer,
@@ -396,6 +407,7 @@ impl EnhanceState {
                 docparse_vlm::refine_tables(&mut doc, std::fs::read(path)?, &client)?;
             }
         }
+        drop_empty_table_placeholders(&mut doc);
         Ok(doc)
     }
 }
@@ -668,6 +680,10 @@ fn main() -> anyhow::Result<()> {
             }
         }
     }
+
+    // After all enhancers: drop empty-row table placeholders before any output
+    // or quality/profile pass sees them.
+    drop_empty_table_placeholders(&mut doc);
 
     if cli.quality {
         eprintln!("{}", docparse_core::quality::analyze(&doc).to_json());

@@ -21,7 +21,6 @@ from e2e_table_eval import wrap_pdf
 from table_eval import JSON
 
 BIN = os.path.join(ROOT, "target/release/docparse")
-import os as _os  # ROOT used above
 
 # Body categories worth comparing (exclude furniture: headers/footers/page
 # numbers/captions/figures/tables/equations/masks/abandon).
@@ -30,7 +29,18 @@ READABLE = {"text_block", "title", "list_group", "code_txt", "reference"}
 
 def norm(s):
     s = unicodedata.normalize("NFKC", str(s))
+    # Strip math-mode delimiters so GT inline math `$x$` and a transcribe
+    # prediction's `\(x\)` compare on content, not on the delimiter style.
+    for w in ("$$", "$", "\\(", "\\)"):
+        s = s.replace(w, "")
     return re.sub(r"\s+", " ", s.strip()).lower()
+
+
+def strip_display_math(s):
+    """Remove `\\[...\\]` display-equation blocks. GT readable text excludes
+    isolated equations, but --transcribe-model re-recognizes them; leaving them
+    in the prediction is a pure-insertion penalty, so drop them before scoring."""
+    return re.sub(r"\\\[.*?\\\]", " ", s, flags=re.S)
 
 
 def gt_text(page):
@@ -60,7 +70,7 @@ def main():
                 if mode == "transcribe"
                 else [BIN, pdf, "--ocr", "--layout", "-f", "text"])
         r = subprocess.run(args, capture_output=True, text=True)
-        ours = norm(r.stdout)
+        ours = norm(strip_display_math(r.stdout))
         # CHARACTER-level similarity: CJK has no spaces, so word-level split()
         # collapses a whole Chinese page into one token and breaks the metric.
         # OmniDocBench's text metric is normalized edit distance (char-level).

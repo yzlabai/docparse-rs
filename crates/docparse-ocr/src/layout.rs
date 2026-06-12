@@ -297,9 +297,12 @@ pub fn enhance_document(
         // model has nothing to refine; placeholders the model can't fill are
         // dropped by refine_tables.
         let grouped = assign_groups(page, &regions);
-        let mut els = grouped.clone().unwrap_or_else(|| page.elements.clone());
+        let had_groups = grouped.is_some();
+        // Take ownership (no extra clone of the element Vec / its pixel buffers
+        // on the success path); only clone when grouping declined.
+        let mut els = grouped.unwrap_or_else(|| page.elements.clone());
         let seeded = seed_table_regions(&mut els, &regions, page.number);
-        if grouped.is_some() || seeded > 0 {
+        if had_groups || seeded > 0 {
             page.elements = els;
             enhanced += 1;
         }

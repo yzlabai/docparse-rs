@@ -16,12 +16,16 @@ from table_eval import recognize, JSON
 
 
 def norm_latex(s):
-    """Normalize LaTeX for comparison: strip $/\\(\\)/\\[\\] wrappers, collapse
-    whitespace, drop \\left \\right and braces that don't change structure."""
+    """Normalize LaTeX for comparison: strip math-mode wrappers and the
+    `\\left`/`\\right` SIZING prefixes (only when followed by a delimiter, so
+    `\\leftarrow`/`\\rightarrow` are NOT corrupted), then drop whitespace."""
     s = s.strip()
-    for w in ["$$", "$", "\\(", "\\)", "\\[", "\\]", "\\left", "\\right", " ", "\n", "\t"]:
+    for w in ["$$", "$", "\\(", "\\)", "\\[", "\\]"]:
         s = s.replace(w, "")
-    return s
+    # \left( \right] \left. etc. — only before an actual delimiter char.
+    s = re.sub(r"\\left(?=[([{|.\\])", "", s)
+    s = re.sub(r"\\right(?=[)\]}|.\\])", "", s)
+    return re.sub(r"\s+", "", s)
 
 
 def main():

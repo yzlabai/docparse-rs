@@ -345,7 +345,9 @@ pub fn profile_page(page: &Page) -> PageProfile {
                 let a = ((i.bbox.x1 - i.bbox.x0) * (i.bbox.y1 - i.bbox.y0)) / page_area;
                 image_coverage = image_coverage.max(a.clamp(0.0, 1.0));
             }
-            Element::Table(_) => tables += 1,
+            // Skip empty-row placeholders (unfilled layout table regions).
+            Element::Table(t) if !t.rows.is_empty() => tables += 1,
+            Element::Table(_) => {}
         }
     }
     let reading_order_anomaly = reading_order_anomaly(page);
