@@ -26,7 +26,7 @@
 ### 阶段 0 · 数据获取 ✅
 - [x] `OmniDocBench.json`(40MB)下到 `tmp/omnidocbench/`(不进 repo);摸清结构:1651 页、表 665(全带 HTML span 真值)、中英为主;图像按需 curl(.png 实为 progressive JPEG)。
 
-### 阶段 1 · 表格专项 ✅(2026-06-12,见 [testresults](../testresults/2026-06-12-omnidocbench-table.md))
+### 阶段 1 · 表格专项 ✅(2026-06-12,见 [testresults](../testresults/2026-06-12-omnidocbench.md))
 目标:证明 UniRec 表识别在 **span 口径人工真值**下的真实能力(根治压扁口径反噬)。
 - [x] 抽 `category_type=table` 块(poly + GT html);
 - [x] **关键调整**:`--table-model` 是"重抽确定性检测的表",图像上检测失效(`refined: 0`)→ 改用 GT poly 裁表区**直接喂 `UniRec::recognize`**(新 eval-only example [`odb_recognize`](../../crates/docparse-ocr/examples/odb_recognize.rs)),测模型纯能力(benchmark 单模块标准做法);
@@ -40,14 +40,15 @@
 - [x] 端到端评测脚本 [`e2e_table_eval.py`](../../scripts/eval/omnidocbench/e2e_table_eval.py):页图→image-PDF→`--ocr --layout --table-model`→管线自检表→TEDS;
 - **验收 ✅**:端到端 8 单表页 **mean TEDS_X 0.827**,同表对比单模块 0.995→端到端 0.970(检测损耗仅 0.025);图像/扫描文档现在端到端用得上表模型(此前 `refined: 0`)。
 
-### 阶段 3 · 整页综合分(候做)
-- [ ] 整页 markdown(表 HTML/公式 LaTeX/文本)→ OmniDocBench 端到端综合分(文本 edit-dist + 表 TEDS + 公式 CDM);多表页需 pred↔GT 表匹配;
-- **验收**:出综合分,分文档类型明细,和论文 90.57% 量级对标。
+### 阶段 3 · 整页画像 + 写结果 ✅(2026-06-12)
+三维度画像出齐,综合测评落档:
+- [x] **公式**([`formula_eval.py`](../../scripts/eval/omnidocbench/formula_eval.py)):GT 公式区→UniRec→LaTeX,30 式 **LaTeX-sim 0.708**;
+- [x] **整页文本**([`e2e_text_eval.py`](../../scripts/eval/omnidocbench/e2e_text_eval.py)):OCR vs GT 阅读顺序,10 页 **字符级 sim 0.423**(轻量 mobile OCR 在图像文档上的真实水平;⚠️ 中文必须字符级,词级分词假性归零的坑已记);
+- [x] **综合测评文档** [testresults/2026-06-12-omnidocbench.md](../testresults/2026-06-12-omnidocbench.md)(表/公式/文本三维度 + 决定性结论 + 边界 + 复现);README 中英补第二记分牌。
 
-### 阶段 3 · 写结果 + 迭代完善
-- [ ] `docs/testresults/<date>-omnidocbench.md`:确定性 vs 模型路径分项数据、与论文/同类量级对标、诚实边界(图像输入≠born-digital 快路径);
-- [ ] 据结果回流改进点(如表模型行切分噪声 G3-R、OCR 弱项),进 plan/按需池;
-- [ ] README 记分牌区补"第二记分牌(OmniDocBench 人工真值)"小节。
+### 阶段 3+ · 官方综合分(候做)
+- [ ] 官方综合分公式 `((1−text_edit)·100 + table_TEDS + formula_CDM)/3` + 真 CDM(渲染比对)+ 多表页 pred↔GT 匹配,和论文 90.57% **逐项**对标;
+- [ ] 全量子集(夜跑)拿权威均值;失败例回流(G3-R 行切分、重型 OCR/VLM)。
 
 ## 3. 风险与对策
 
