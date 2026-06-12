@@ -34,11 +34,15 @@
 - **验收 ✅**:**80 表 mean TEDS_X 0.810、median 0.895**——**同一 UniRec,vs Docling 压扁口径 0.526 → OmniDocBench span 口径 0.810**,坐实"换尺子见真章"。单表样例 0.995 逐格一致;中位数 0.895 即一半的表近乎完美。
 - **副产发现**(记入 testresults):图像文档端到端要发挥模型,需把 `--layout`(YOLO)表区接进 `--table-model`(当前 `--layout` 不产生 Table 元素)。
 
-### 阶段 2 · 端到端(整页 markdown)
-- [ ] 适配器:`docparse page.png --ocr [--table-model/--transcribe-model] -f markdown` → 转成 OmniDocBench 端到端格式(表格 `<table>` HTML、公式 `$$..$$`、其余 markdown 段落,阅读顺序即输出顺序);
-- [ ] 自写端到端评分:按块类型分别算(文本 edit-dist、表 TEDS、公式 edit-dist),综合分参照官方 `((1−text_edit)*100 + table_TEDS + formula_CDM)/3` 的形;
-- [ ] 先跑子集(每类文档若干页)验证管线,再按算力扩大;
-- **验收**:出端到端综合分,分文档类型(论文/书/试卷/财报…)给明细,定位强弱项。
+### 阶段 2 · 端到端打通(检测→模型)✅(2026-06-12)
+范式不匹配(图像上确定性检测失效→模型用不上)已解决:
+- [x] `--layout` 检出表区(YOLO class 5)→ `seed_table_regions` 生成空 Table 占位 → `--table-model` 重抽 → 失败占位清理(output/chunk 跳过空表);born-digital 零回归(确定性表覆盖检查跳过占位);
+- [x] 端到端评测脚本 [`e2e_table_eval.py`](../../scripts/eval/omnidocbench/e2e_table_eval.py):页图→image-PDF→`--ocr --layout --table-model`→管线自检表→TEDS;
+- **验收 ✅**:端到端 8 单表页 **mean TEDS_X 0.827**,同表对比单模块 0.995→端到端 0.970(检测损耗仅 0.025);图像/扫描文档现在端到端用得上表模型(此前 `refined: 0`)。
+
+### 阶段 3 · 整页综合分(候做)
+- [ ] 整页 markdown(表 HTML/公式 LaTeX/文本)→ OmniDocBench 端到端综合分(文本 edit-dist + 表 TEDS + 公式 CDM);多表页需 pred↔GT 表匹配;
+- **验收**:出综合分,分文档类型明细,和论文 90.57% 量级对标。
 
 ### 阶段 3 · 写结果 + 迭代完善
 - [ ] `docs/testresults/<date>-omnidocbench.md`:确定性 vs 模型路径分项数据、与论文/同类量级对标、诚实边界(图像输入≠born-digital 快路径);

@@ -33,14 +33,25 @@ OmniDocBench 表格**单模块**协议:给表区域,识别结构出 HTML,与 GT 
 
 样例(`page-f9583127`,5×N 含数学的表):我方 HTML 与 GT **逐格一致**(`Dimension (D)`/`768 64 64 32 128`…),TEDS 0.995;差异仅数学定界符与个别 OCR 字(`d_ν` vs `d_v`)。
 
-## 关键发现:范式不匹配(诚实记录)
+## 阶段 2 · 端到端(检测 + 识别)— 打通后
+
+阶段 1 是**单模块**(GT 表区直喂模型,不掺检测)。阶段 2 打通了 `--layout`(YOLO)检出的表区 → `--table-model` 重抽([提交](../../crates/docparse-ocr/src/layout.rs) `seed_table_regions`),让图像文档**端到端**用上模型:页图 → image-PDF → `docparse --ocr --layout --table-model` → 管线自己检出+识别的表。脚本 [`e2e_table_eval.py`](../../scripts/eval/omnidocbench/e2e_table_eval.py)。
+
+| 评测 | 表区来源 | 表数 | mean TEDS_X |
+|---|---|---|---|
+| 阶段1 单模块 | GT poly(已知表区) | 80 | 0.810 |
+| **阶段2 端到端** | **--layout YOLO 检出** | 8 单表页 | **0.827** |
+
+**检测层损耗极小**:同一个表(`page-f9583127`),单模块 0.995 vs 端到端 0.970——layout 检出的表区足够准,端到端几乎不输"给定 GT 区域"。这坐实打通有效:**图像/扫描文档现在端到端用得上表模型**(此前 `refined: 0`,模型被矢量检测挡在门外)。
+
+## 关键发现:范式不匹配(已由阶段2打通解决)
 
 接入中发现一个架构性事实:
 1. **OmniDocBench 输入是页面图像**(.png,实为 JPEG),不是 born-digital PDF;
 2. 我们的模型路径(`--table-model`)是"**重抽确定性检测出的表**"——而图像上**确定性表检测失效**(无矢量 ruling line、OCR bbox 对齐不规整),所以整页跑 `--table-model` 时 `table_model_refined: 0`(没表可重抽);
 3. 故本评测用 GT poly 裁表区**直接喂 UniRec**(`odb_recognize`),测的是**模型的纯表识别能力**(benchmark 单模块标准做法),不掺我们的检测。
 
-**含义**:UniRec 模型本身在图像表上很强(0.812);但要在 OmniDocBench 这类**图像文档**端到端发挥它,我们缺一个**图像上的强区域检测**(确定性检测是为 born-digital 矢量设计的)。出口是把 `--layout`(DocLayout-YOLO 神经检测)的表区接进 `--table-model`(当前 `--layout` 只给文本块标 group、不产生 `Table` 元素)——记为改进项。
+**含义**:UniRec 模型本身在图像表上很强(0.810);但要在 OmniDocBench 这类**图像文档**端到端发挥它,需要**图像上的强区域检测**(确定性检测是为 born-digital 矢量设计的)。**阶段2已解决**:`--layout`(DocLayout-YOLO)的表区接进 `--table-model`(`seed_table_regions` 生成占位表→模型重抽→失败占位清理),端到端 TEDS 0.827、检测损耗仅 0.025。
 
 ## 边界与定位
 
@@ -48,8 +59,8 @@ OmniDocBench 表格**单模块**协议:给表区域,识别结构出 HTML,与 GT 
 - TEDS 为自实现(Zhang-Shasha,标准算法)+ 子集,与论文 90.57%(端到端综合,非表格单项)**量级参照、不逐位可比**;
 - 纯评测侧,`odb_recognize` 是 eval-only example,**不进二进制**,默认路径与产物零变化。
 
-## 下一步(阶段 2,候做)
+## 下一步
 
-- 全量 665 表跑批(夜跑,~1h)拿权威表 TEDS;
-- 端到端:整页图 → `--ocr` markdown(表 HTML/公式 LaTeX)→ OmniDocBench 端到端综合分;需先把 `--layout` 表区接进模型重抽(解上面的范式不匹配);
-- 据失败例(0.007 类)回流 G3-R 模型侧改进(行切分噪声)。
+- 全量 665 表跑批(夜跑,~1h)拿权威表 TEDS;端到端单表页扩到更大子集;
+- **整页综合分**:整页图 → markdown(表 HTML/公式 LaTeX/文本)→ OmniDocBench 端到端综合分(文本 edit-dist + 表 TEDS + 公式 CDM);多表页需 pred↔GT 表匹配。阶段2 已打通检测→模型,整页综合是最后一块;
+- 据失败例(0.44/0.49 类)回流 G3-R 模型侧改进(行切分噪声 + 难表)。
