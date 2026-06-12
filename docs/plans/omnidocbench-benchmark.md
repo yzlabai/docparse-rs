@@ -23,17 +23,16 @@
 
 ## 2. 分阶段(先小后大,各自出数字)
 
-### 阶段 0 · 数据获取
-- [ ] `huggingface-cli download opendatalab/OmniDocBench --repo-type dataset` → `tmp/omnidocbench/`(不进 repo);
-- [ ] 先取 `OmniDocBench.json`(真值,~MB)摸清结构;图像 1.5GB 全量下(磁盘 1.3TB 够),或先按 category 抽含表/公式页的子集。
+### 阶段 0 · 数据获取 ✅
+- [x] `OmniDocBench.json`(40MB)下到 `tmp/omnidocbench/`(不进 repo);摸清结构:1651 页、表 665(全带 HTML span 真值)、中英为主;图像按需 curl(.png 实为 progressive JPEG)。
 
-### 阶段 1 · 表格专项(最快出结果,最小改动)
-目标:证明 `--table-model` 在 **span 口径真值**下确实更强(根治当前压扁口径反噬)。
-- [ ] 从 `OmniDocBench.json` 抽 `category_type=table` 的块:GT `html` + `poly`(表区域 bbox)+ 所属页图;
-- [ ] 裁剪表区域图 → `docparse <crop>.png --ocr --table-model models/unirec -f json/html` → 取我方表 HTML;
-- [ ] 对照组:`--ocr` 不开 table-model(纯 OCR 出的表) 或确定性(图像无文本则空);
-- [ ] HTML → 树 → `teds_x` 算 TEDS(GT vs 我方),分 with/without 模型;
-- **验收**:`--table-model` 的 TEDS 显著 > 纯 OCR;给出绝对值,和论文表格分对标量级。
+### 阶段 1 · 表格专项 ✅(2026-06-12,见 [testresults](../testresults/2026-06-12-omnidocbench-table.md))
+目标:证明 UniRec 表识别在 **span 口径人工真值**下的真实能力(根治压扁口径反噬)。
+- [x] 抽 `category_type=table` 块(poly + GT html);
+- [x] **关键调整**:`--table-model` 是"重抽确定性检测的表",图像上检测失效(`refined: 0`)→ 改用 GT poly 裁表区**直接喂 `UniRec::recognize`**(新 eval-only example [`odb_recognize`](../../crates/docparse-ocr/examples/odb_recognize.rs)),测模型纯能力(benchmark 单模块标准做法);
+- [x] HTML→span 树→复用 `teds_x`(数学定界符归一化),脚本 [`table_eval.py`](../../scripts/eval/omnidocbench/table_eval.py);
+- **验收 ✅**:**25 表 mean TEDS_X 0.812**(80 表稳健均值跑批中)——**同一 UniRec,vs Docling 压扁口径 0.526 → OmniDocBench span 口径 0.812**,坐实"换尺子见真章"。单表样例 0.995 逐格一致。
+- **副产发现**(记入 testresults):图像文档端到端要发挥模型,需把 `--layout`(YOLO)表区接进 `--table-model`(当前 `--layout` 不产生 Table 元素)。
 
 ### 阶段 2 · 端到端(整页 markdown)
 - [ ] 适配器:`docparse page.png --ocr [--table-model/--transcribe-model] -f markdown` → 转成 OmniDocBench 端到端格式(表格 `<table>` HTML、公式 `$$..$$`、其余 markdown 段落,阅读顺序即输出顺序);
