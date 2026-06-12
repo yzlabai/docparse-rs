@@ -99,7 +99,8 @@ pub fn chunk_document_with(doc: &Document, opts: ChunkOptions) -> Vec<Chunk> {
             .elements
             .iter()
             .filter_map(|e| match e {
-                Element::Table(t) => Some(t),
+                // Skip empty-row placeholders (unfilled layout table regions).
+                Element::Table(t) if !t.rows.is_empty() => Some(t),
                 _ => None,
             })
             .collect();

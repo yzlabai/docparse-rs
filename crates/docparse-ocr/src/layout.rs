@@ -10,7 +10,7 @@
 //! each — the model fixes the macro order, determinism keeps the micro order.
 
 use anyhow::{Context, Result};
-use docparse_core::ir::{BBox, Element, Page, TextChunk};
+use docparse_core::ir::{BBox, Element, Page, Table, TextChunk};
 use docparse_core::reading_order::reading_order;
 use std::path::Path;
 use tract_onnx::prelude::*;
@@ -19,6 +19,8 @@ type Runnable = std::sync::Arc<TypedRunnableModel>;
 
 /// Detection canvas (DocLayout-YOLO contract).
 const SIDE: usize = 1024;
+/// DocStructBench class id for tables (cf. `formula::FORMULA_CLASS` = 8).
+const TABLE_CLASS: u8 = 5;
 /// Keep regions at or above this score.
 const SCORE_MIN: f32 = 0.25;
 /// Skip enhancement when fewer regions than this (nothing to reorder).
@@ -288,12 +290,60 @@ pub fn enhance_document(
                 );
             }
         }
-        if let Some(els) = assign_groups(page, &regions) {
+        // Group text by region (macro reading order), then seed empty Table
+        // placeholders for detected table regions so `--table-model` (run
+        // after) can recognize them. On image documents there are no vector
+        // ruling lines for deterministic table detection, so without this the
+        // model has nothing to refine; placeholders the model can't fill are
+        // dropped by refine_tables.
+        let grouped = assign_groups(page, &regions);
+        let mut els = grouped.clone().unwrap_or_else(|| page.elements.clone());
+        let seeded = seed_table_regions(&mut els, &regions, page.number);
+        if grouped.is_some() || seeded > 0 {
             page.elements = els;
             enhanced += 1;
         }
     }
     Ok(enhanced)
+}
+
+/// Append empty `Table` placeholders for table regions not already covered by
+/// an existing table element. Returns how many were seeded. The placeholder's
+/// empty `rows` signals `--table-model` to recognize it; if the model declines
+/// or isn't run, refine_tables / output drop empty tables.
+fn seed_table_regions(els: &mut Vec<Element>, regions: &[Region], page: usize) -> usize {
+    let existing: Vec<BBox> = els
+        .iter()
+        .filter_map(|e| match e {
+            Element::Table(t) => Some(t.bbox),
+            _ => None,
+        })
+        .collect();
+    let mut seeded = 0;
+    for r in regions {
+        if r.class != TABLE_CLASS || r.score < SCORE_MIN {
+            continue;
+        }
+        // Skip a region already covered by a deterministic table (>50% of the
+        // region overlaps an existing table box).
+        let ra = ((r.bbox.x1 - r.bbox.x0) * (r.bbox.y1 - r.bbox.y0)).max(1e-3);
+        let covered = existing.iter().any(|b| {
+            let ix = (r.bbox.x1.min(b.x1) - r.bbox.x0.max(b.x0)).max(0.0);
+            let iy = (r.bbox.y1.min(b.y1) - r.bbox.y0.max(b.y0)).max(0.0);
+            ix * iy / ra > 0.5
+        });
+        if covered {
+            continue;
+        }
+        els.push(Element::Table(Table {
+            bbox: r.bbox,
+            page,
+            rows: Vec::new(),
+            source: Some("layout-region".to_string()),
+        }));
+        seeded += 1;
+    }
+    seeded
 }
 
 #[cfg(test)]
@@ -361,6 +411,46 @@ mod tests {
             elements: vec![text_at(0.0, 0.0, 10.0, 10.0)],
         };
         assert!(assign_groups(&page, &[region(0.0, 0.0, 100.0, 100.0)]).is_none());
+    }
+
+    fn table_region(x0: f32, y0: f32, x1: f32, y1: f32) -> Region {
+        Region {
+            bbox: BBox { x0, y0, x1, y1 },
+            class: TABLE_CLASS,
+            score: 0.9,
+        }
+    }
+
+    #[test]
+    fn seeds_placeholder_for_uncovered_table_region() {
+        // A detected table region with no existing table → one empty
+        // placeholder for --table-model to recognize.
+        let mut els = vec![text_at(0.0, 0.0, 10.0, 10.0)];
+        let seeded = seed_table_regions(&mut els, &[table_region(100.0, 100.0, 300.0, 300.0)], 1);
+        assert_eq!(seeded, 1);
+        let t = els.iter().find_map(|e| match e {
+            Element::Table(t) => Some(t),
+            _ => None,
+        });
+        assert!(t.is_some() && t.unwrap().rows.is_empty());
+        assert_eq!(t.unwrap().source.as_deref(), Some("layout-region"));
+    }
+
+    #[test]
+    fn skips_region_covered_by_existing_table_and_non_table_class() {
+        let mut els = vec![Element::Table(Table {
+            bbox: BBox { x0: 100.0, y0: 100.0, x1: 300.0, y1: 300.0 },
+            page: 1,
+            rows: vec![vec![]],
+            source: None,
+        })];
+        // Same-area table region → covered, not seeded; a non-table region → ignored.
+        let n = seed_table_regions(
+            &mut els,
+            &[table_region(105.0, 105.0, 295.0, 295.0), region(400.0, 400.0, 500.0, 500.0)],
+            1,
+        );
+        assert_eq!(n, 0);
     }
 }
 

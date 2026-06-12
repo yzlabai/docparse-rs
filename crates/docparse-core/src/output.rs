@@ -13,12 +13,13 @@ pub fn to_json(doc: &Document) -> anyhow::Result<String> {
     Ok(serde_json::to_string_pretty(doc)?)
 }
 
-/// Tables detected on a page.
+/// Tables detected on a page. Empty-row tables (e.g. an unfilled layout-seeded
+/// table-region placeholder) are skipped — a table with no cells isn't content.
 fn page_tables(page: &Page) -> Vec<&Table> {
     page.elements
         .iter()
         .filter_map(|e| match e {
-            Element::Table(t) => Some(t),
+            Element::Table(t) if !t.rows.is_empty() => Some(t),
             _ => None,
         })
         .collect()
