@@ -64,6 +64,8 @@ async fn parse(
     // chunks 专用：?envelope=true 把裸 chunk 数组包成 {provenance,quality,profile,chunks}
     // （同 MCP get_chunks），让 RAG 消费方据 quality.flags 决定是否开 OCR/layout。
     let envelope = flag("envelope");
+    // chunks 专用：?table_format=markdown 让表格 chunk 出 GitHub 管道表（默认 tab/换行）。
+    let table_markdown = q.get("table_format").map(String::as_str) == Some("markdown");
     let opts = crate::EnhanceOpts {
         ocr: flag("ocr"),
         images_embedded,
@@ -103,7 +105,15 @@ async fn parse(
     let rendered = tokio::task::spawn_blocking(move || {
         // Model load (first enhanced request only) and inference are both
         // CPU-bound — they belong on the blocking pool with the parse.
-        render(&task_path, &task_name, &format, opts, envelope, &state)
+        render(
+            &task_path,
+            &task_name,
+            &format,
+            opts,
+            envelope,
+            table_markdown,
+            &state,
+        )
     })
     .await;
     let elapsed_ms = started.elapsed().as_millis().to_string();
@@ -145,6 +155,7 @@ fn render(
     format: &str,
     opts: crate::EnhanceOpts,
     envelope: bool,
+    table_markdown: bool,
     state: &crate::EnhanceState,
 ) -> anyhow::Result<(String, &'static str)> {
     let doc = crate::parse_path_with(path, opts.images_embedded)?;
@@ -155,7 +166,13 @@ fn render(
         "markdown" => (output::to_markdown(&doc), "text/markdown; charset=utf-8"),
         "text" => (output::to_text(&doc), "text/plain; charset=utf-8"),
         "chunks" => {
-            let chunks = docparse_core::chunk::chunk_document(&doc);
+            let chunks = docparse_core::chunk::chunk_document_with(
+                &doc,
+                docparse_core::chunk::ChunkOptions {
+                    table_markdown,
+                    ..Default::default()
+                },
+            );
             let body = if envelope {
                 // Same shape as MCP get_chunks: provenance + quality + per-page
                 // profile alongside the chunks, so a RAG client can route
@@ -218,8 +235,10 @@ mod tests {
     fn render_matches_cli_pipeline_and_is_deterministic() {
         let path = temp_html("docparse-rest-test.html");
         let st = test_state();
-        let (a, ct) = render(&path, "up.html", "markdown", Default::default(), false, &st).unwrap();
-        let (b, _) = render(&path, "up.html", "markdown", Default::default(), false, &st).unwrap();
+        let (a, ct) =
+            render(&path, "up.html", "markdown", Default::default(), false, false, &st).unwrap();
+        let (b, _) =
+            render(&path, "up.html", "markdown", Default::default(), false, false, &st).unwrap();
         assert_eq!(a, b, "same input must render byte-identically");
         assert_eq!(ct, "text/markdown; charset=utf-8");
         assert!(a.contains("Hello rest."));
@@ -234,7 +253,10 @@ mod tests {
     #[test]
     fn unknown_format_is_an_error() {
         let path = temp_html("docparse-rest-badfmt.html");
-        assert!(render(&path, "x.html", "yaml", Default::default(), false, &test_state()).is_err());
+        assert!(
+            render(&path, "x.html", "yaml", Default::default(), false, false, &test_state())
+                .is_err()
+        );
     }
 
     #[test]
@@ -242,14 +264,15 @@ mod tests {
         let path = temp_html("docparse-rest-envelope.html");
         let st = test_state();
         // 默认 = 裸数组（与 CLI 字节一致）
-        let (bare, ct) = render(&path, "up.html", "chunks", Default::default(), false, &st).unwrap();
+        let (bare, ct) =
+            render(&path, "up.html", "chunks", Default::default(), false, false, &st).unwrap();
         assert_eq!(ct, "application/json");
         let bare_json: serde_json::Value = serde_json::from_str(&bare).unwrap();
         assert!(bare_json.is_array(), "bare chunks must be a JSON array");
 
         // envelope=true = {provenance,quality,profile,chunks}，chunks 与裸数组同内容
         let (env, _) =
-            render(&path, "up.html", "chunks", Default::default(), true, &st).unwrap();
+            render(&path, "up.html", "chunks", Default::default(), true, false, &st).unwrap();
         let env_json: serde_json::Value = serde_json::from_str(&env).unwrap();
         assert!(env_json["provenance"]["parser"].is_string());
         assert!(env_json["quality"]["coverage"].is_number());

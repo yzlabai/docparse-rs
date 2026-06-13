@@ -70,6 +70,10 @@ struct Cli {
     #[arg(short, long, value_enum, default_value_t = Format::Json)]
     format: Format,
 
+    /// Table rendering inside `-f chunks` text (tab=default, markdown=pipe table).
+    #[arg(long, value_enum, default_value_t = TableFormat::Tab)]
+    table_format: TableFormat,
+
     /// Write to this file instead of stdout.
     #[arg(short, long)]
     out: Option<PathBuf>,
@@ -504,6 +508,15 @@ enum Format {
     Chunks,
 }
 
+/// Table cell rendering inside `chunks` text.
+#[derive(Clone, Copy, ValueEnum)]
+enum TableFormat {
+    /// Tab/newline separated (default, compact).
+    Tab,
+    /// GitHub pipe table (markdown-native consumers).
+    Markdown,
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
@@ -711,7 +724,13 @@ fn main() -> anyhow::Result<()> {
         Format::Markdown => output::to_markdown(&doc),
         Format::Text => output::to_text(&doc),
         Format::Chunks => {
-            docparse_core::chunk::to_json(&docparse_core::chunk::chunk_document(&doc))
+            let opts = docparse_core::chunk::ChunkOptions {
+                table_markdown: matches!(cli.table_format, TableFormat::Markdown),
+                ..Default::default()
+            };
+            docparse_core::chunk::to_json(&docparse_core::chunk::chunk_document_with(
+                &doc, opts,
+            ))
         }
     };
 

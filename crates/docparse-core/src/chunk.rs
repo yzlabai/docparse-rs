@@ -6,7 +6,7 @@
 //! every chunk points back to exact coordinates ([`Chunk::page`]/[`Chunk::bbox`]),
 //! and [`locate`] maps a coordinate back to its chunk — bidirectional citation.
 
-use crate::ir::{BBox, Document, Element, Table};
+use crate::ir::{BBox, Cell, Document, Element, Table};
 use crate::layout::{self, Block};
 use serde::{Deserialize, Serialize};
 
@@ -45,11 +45,17 @@ pub struct ChunkOptions {
     /// Soft target: accumulate consecutive paragraphs up to about this many
     /// characters before emitting a chunk.
     pub target_chars: usize,
+    /// Table chunk text rendering: `false` = tab/newline (default, compact);
+    /// `true` = GitHub pipe table (friendlier for markdown-native RAG consumers).
+    pub table_markdown: bool,
 }
 
 impl Default for ChunkOptions {
     fn default() -> Self {
-        Self { target_chars: 800 }
+        Self {
+            target_chars: 800,
+            table_markdown: false,
+        }
     }
 }
 
@@ -204,7 +210,11 @@ pub fn chunk_document_with(doc: &Document, opts: ChunkOptions) -> Vec<Chunk> {
                 Item::Table(t) => {
                     flush(&mut buf, &mut chunks, &mut next_id);
                     let path: Vec<String> = headings.iter().map(|(_, t)| t.clone()).collect();
-                    let text = table_text(t);
+                    let text = if opts.table_markdown {
+                        table_text_markdown(t)
+                    } else {
+                        table_text(t)
+                    };
                     chunks.push(Chunk {
                         id: next_id,
                         kind: ChunkKind::Table,
@@ -274,6 +284,29 @@ fn table_text(t: &Table) -> String {
         .join("\n")
 }
 
+/// GitHub pipe-table rendering of a table for a chunk's text (first row =
+/// header). Cell `|`/newline are escaped; ragged rows are padded to the widest
+/// column count so the table stays parseable.
+fn table_text_markdown(t: &Table) -> String {
+    if t.rows.is_empty() {
+        return String::new();
+    }
+    let cols = t.rows.iter().map(Vec::len).max().unwrap_or(0);
+    let esc = |s: &str| s.trim().replace('|', "\\|").replace('\n', " ");
+    let fmt_row = |row: &[Cell]| {
+        let mut cells: Vec<String> = row.iter().map(|c| esc(&c.text)).collect();
+        cells.resize(cols, String::new());
+        format!("| {} |", cells.join(" | "))
+    };
+    let mut lines = Vec::with_capacity(t.rows.len() + 1);
+    lines.push(fmt_row(&t.rows[0]));
+    lines.push(format!("| {} |", vec!["---"; cols].join(" | ")));
+    for row in &t.rows[1..] {
+        lines.push(fmt_row(row));
+    }
+    lines.join("\n")
+}
+
 /// Bidirectional citation: find the chunk whose source box on `page` contains
 /// the point `(x, y)` (PDF user space). Returns the first match in id order.
 pub fn locate(chunks: &[Chunk], page: usize, x: f32, y: f32) -> Option<&Chunk> {
@@ -319,6 +352,45 @@ mod tests {
                 elements,
             }],
         }
+    }
+
+    #[test]
+    fn table_markdown_option_renders_pipe_table() {
+        let bb = BBox {
+            x0: 0.0,
+            y0: 0.0,
+            x1: 10.0,
+            y1: 10.0,
+        };
+        let cell = |s: &str| Cell {
+            text: s.into(),
+            bbox: bb,
+            row_span: 1,
+            col_span: 1,
+            merged: false,
+        };
+        let table = Element::Table(Table {
+            bbox: bb,
+            page: 1,
+            rows: vec![
+                vec![cell("方法"), cell("准确率")],
+                vec![cell("BM25"), cell("0.81")],
+            ],
+            source: None,
+        });
+        let d = doc(vec![table]);
+
+        // markdown 选项 → 管道表
+        let md = chunk_document_with(&d, ChunkOptions { table_markdown: true, ..Default::default() });
+        let t = md.iter().find(|c| c.kind == ChunkKind::Table).unwrap();
+        assert!(t.text.contains("| 方法 | 准确率 |"), "got: {}", t.text);
+        assert!(t.text.contains("| --- | --- |"));
+
+        // 默认 → tab/换行（向后兼容）
+        let def = chunk_document_with(&d, ChunkOptions::default());
+        let t2 = def.iter().find(|c| c.kind == ChunkKind::Table).unwrap();
+        assert!(t2.text.contains("方法\t准确率"), "got: {}", t2.text);
+        assert!(!t2.text.contains('|'));
     }
 
     #[test]

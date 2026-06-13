@@ -229,7 +229,15 @@ fn tool_parse_document(args: &Value, state: &crate::EnhanceState) -> anyhow::Res
 
 fn tool_get_chunks(args: &Value, state: &crate::EnhanceState) -> anyhow::Result<String> {
     let doc = parse_enhanced(args, state)?;
-    let chunks = docparse_core::chunk::chunk_document(&doc);
+    let table_markdown =
+        args.get("table_format").and_then(Value::as_str) == Some("markdown");
+    let chunks = docparse_core::chunk::chunk_document_with(
+        &doc,
+        docparse_core::chunk::ChunkOptions {
+            table_markdown,
+            ..Default::default()
+        },
+    );
     let envelope = json!({
         "provenance": serde_json::to_value(&doc.provenance)?,
         "quality": serde_json::to_value(docparse_core::quality::analyze(&doc))?,
