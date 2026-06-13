@@ -200,8 +200,13 @@ enum Command {
         #[arg(long)]
         vlm_api_key: Option<String>,
     },
-    /// Serve a REST API on 127.0.0.1: POST /parse (multipart) + GET /healthz.
+    /// Serve a REST API: POST /parse (multipart) + GET /healthz.
     Serve {
+        /// Bind address. Default 127.0.0.1 (same-machine trust model); set
+        /// 0.0.0.0 only behind a trusted network boundary (e.g. a container on
+        /// a private compose network) — the API has no auth.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
         /// TCP port to listen on.
         #[arg(long, default_value_t = 8642)]
         port: u16,
@@ -537,6 +542,7 @@ fn main() -> anyhow::Result<()> {
             ))
         }
         Some(Command::Serve {
+            host,
             port,
             ocr_models,
             layout_model,
@@ -546,6 +552,7 @@ fn main() -> anyhow::Result<()> {
             vlm_api_key,
         }) => {
             return server::serve(
+                &host,
                 port,
                 EnhanceState::new(
                     ocr_models,

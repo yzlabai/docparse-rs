@@ -6,10 +6,12 @@
 //! body is byte-identical to the CLI's stdout — determinism holds across
 //! interfaces, and tests pin it.
 //!
-//! Scope (plan §3/§5): binds 127.0.0.1 only — same-machine trust model, like
-//! the CLI; no auth/multi-tenancy/queueing ("don't build the orchestration
-//! machine early"). Parsing runs in `spawn_blocking` (rayon inside is
-//! CPU-bound). Security pre-checks (zip bombs etc.) are N5.
+//! Scope (plan §3/§5): no auth/multi-tenancy/queueing ("don't build the
+//! orchestration machine early"). Binds 127.0.0.1 by default — same-machine
+//! trust model, like the CLI; `serve --host 0.0.0.0` opts into a wider bind
+//! for a trusted network boundary (e.g. a container on a private compose
+//! network). Parsing runs in `spawn_blocking` (rayon inside is CPU-bound).
+//! Security pre-checks (zip bombs etc.) are N5.
 
 use axum::extract::{DefaultBodyLimit, Multipart, Query, State};
 use axum::http::{header, StatusCode};
@@ -22,13 +24,13 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-pub fn serve(port: u16, state: crate::EnhanceState) -> anyhow::Result<()> {
+pub fn serve(host: &str, port: u16, state: crate::EnhanceState) -> anyhow::Result<()> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
         .block_on(async {
-            let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
-            eprintln!("docparse REST listening on http://127.0.0.1:{port}");
+            let listener = tokio::net::TcpListener::bind((host, port)).await?;
+            eprintln!("docparse REST listening on http://{host}:{port}");
             axum::serve(listener, router(state)).await?;
             Ok(())
         })
