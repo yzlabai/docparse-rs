@@ -3070,8 +3070,6 @@ dependencies = [
 [[package]]
 name = "tract-core"
 version = "0.23.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "666998e926c772fdcaba566fa1ae9c3c52c27e2aafb9f1c4b2407c2390ee5041"
 dependencies = [
  "anyhow",
  "anymap3",
@@ -3137,8 +3135,6 @@ dependencies = [
 [[package]]
 name = "tract-hir"
 version = "0.23.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c2e7d7703cc8ff7b266402a2a16f4816776b70bdbf7b8c293b650c45a54d883"
 dependencies = [
  "derive-new",
  "log",

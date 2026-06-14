@@ -22,13 +22,6 @@ use anyhow::Result;
 use docparse_core::ir::{Document, Element, TextChunk};
 use std::path::Path;
 
-/// DocStructBench classes worth transcribing (text carriers).
-/// 0=title, 1=plain text, 4=figure_caption, 6=table_caption,
-/// 7=table_footnote, 8=isolate_formula, 9=formula_caption.
-/// Skipped: 2=abandon (running headers/footers — deterministic output drops
-/// them too), 3=figure, 5=table (the table pipeline owns those).
-const TEXT_CLASSES: [u8; 7] = [0, 1, 4, 6, 7, 8, 9];
-const TITLE_CLASS: u8 = 0;
 /// Detection confidence floor.
 const SCORE_MIN: f32 = 0.30;
 /// Render scale (pixels per PDF point).
@@ -63,7 +56,7 @@ pub fn transcribe_pages(
             match layout.detect(&rgb, w as usize, h as usize, RENDER_SCALE, page.height) {
                 Ok(r) => r
                     .into_iter()
-                    .filter(|r| TEXT_CLASSES.contains(&r.class) && r.score >= SCORE_MIN)
+                    .filter(|r| r.kind.is_textual() && r.score >= SCORE_MIN)
                     .collect(),
                 Err(e) => {
                     eprintln!("transcribe: layout failed on page {}: {e:#}", page.number);
@@ -96,7 +89,7 @@ pub fn transcribe_pages(
                     new_chunks.push(TextChunk {
                         text,
                         bbox: region.bbox,
-                        font_size: if region.class == TITLE_CLASS {
+                        font_size: if region.kind.is_title() {
                             16.0
                         } else {
                             10.0

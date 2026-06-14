@@ -20,8 +20,6 @@ use anyhow::Result;
 use docparse_core::ir::{Document, Element, TextChunk};
 use std::path::Path;
 
-/// DocStructBench class id for display formulas (`isolate_formula`).
-const FORMULA_CLASS: u8 = 8;
 /// Detection confidence floor (same spirit as the layout enhancer's gate).
 const SCORE_MIN: f32 = 0.35;
 /// Render scale for formula crops (pixels per PDF point).
@@ -65,7 +63,7 @@ pub fn enhance_formulas(
         };
         for region in regions
             .iter()
-            .filter(|r| r.class == FORMULA_CLASS && r.score >= SCORE_MIN)
+            .filter(|r| r.kind.is_formula_block() && r.score >= SCORE_MIN)
         {
             let Some((cw, ch, crop)) = crop_region(
                 &rgb,
