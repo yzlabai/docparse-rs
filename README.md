@@ -104,14 +104,24 @@ The heart of the project is a self-built **PDF content-stream interpreter** (gra
 
 ## 📦 Optional models
 
-All Apache-2.0, shipped as external files — never baked into the binary.
+All Apache-2.0, fetched from their original repos as external files — never baked into the binary. The core needs **none of them**: born-digital PDFs and every other format parse with zero downloads. Pull a tier only when you want the feature:
 
-| Directory | Model | Powers |
+```bash
+./scripts/fetch-models.sh ocr        # --ocr               (~16 MB)
+./scripts/fetch-models.sh layout     # --layout (default)  (~75 MB)
+./scripts/fetch-models.sh unirec     # --table/formula/transcribe-model (~700 MB)
+./scripts/fetch-models.sh ppv2       # --layout-model ppv2 (~210 MB + a local prep step)
+./scripts/fetch-models.sh all
+```
+
+Needs the HuggingFace CLI (`pip install -U huggingface_hub`); `ppv2` additionally needs `onnx`+`onnxsim` to static-ize its graph for `tract` (the script prints the one-liner).
+
+| Tier | Model (source) | Powers |
 |---|---|---|
-| `models/ppocr/` (~16 MB) | PP-OCRv4 det+rec (+cls) | `--ocr` scanned text, auto-deskew |
-| `models/layout/` (~75 MB) | DocLayout-YOLO | `--layout` regions (default), formula detection |
-| `models/layout-ppv2/` (~210 MB) | PP-DocLayoutV2 | richer layout + native reading order ([A/B](docs/testresults/2026-06-15-ppv2-vs-yolo-omnidocbench.md)) |
-| `models/unirec/` (~700 MB) | UniRec-0.1B | `--table-model` / `--formula-model` / `--transcribe-model` |
+| `ocr` → `models/ppocr/` (~16 MB) | PP-OCRv4 det+rec+cls (`SWHL/RapidOCR`) | `--ocr` scanned text, auto-deskew |
+| `layout` → `models/layout/` (~75 MB) | DocLayout-YOLO (`wybxc/DocLayout-YOLO-DocStructBench-onnx`) | `--layout` regions (default), formula detection |
+| `ppv2` → `models/layout-ppv2/` (~210 MB) | PP-DocLayoutV2 (`topdu/PP_DoclayoutV2_onnx`) | richer layout + native reading order ([A/B](docs/testresults/2026-06-15-ppv2-vs-yolo-omnidocbench.md)) |
+| `unirec` → `models/unirec/` (~700 MB) | UniRec-0.1B (`topdu/unirec_0_1b_onnx`) | `--table-model` / `--formula-model` / `--transcribe-model` |
 
 > UniRec and PP-DocLayoutV2 are the two halves of [OpenOCR](https://github.com/Topdu/OpenOCR)'s **OpenDoc-0.1B**; we run their official ONNX on pure-Rust `tract` and stitch them with our own deterministic core. [Selection rationale →](docs/refer/openocr-0.1b-evaluation.md)
 

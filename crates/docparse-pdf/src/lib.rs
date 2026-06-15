@@ -165,29 +165,6 @@ fn repair_xref_keyword(bytes: &[u8]) -> Option<Vec<u8>> {
     }
 }
 
-#[cfg(test)]
-mod repair_tests {
-    use super::repair_xref_keyword;
-
-    #[test]
-    fn normalizes_same_line_xref_header() {
-        let got = repair_xref_keyword(b"...\r\nxref 0 67\r\n0000 n\r\n").unwrap();
-        assert!(
-            got.windows(8).any(|w| w == b"xref\r\n0 "),
-            "got: {}",
-            String::from_utf8_lossy(&got)
-        );
-    }
-
-    #[test]
-    fn leaves_conforming_xref_untouched() {
-        // `xref` already followed by EOL → no change → None.
-        assert!(repair_xref_keyword(b"...\r\nxref\r\n0 67\r\n").is_none());
-        // `startxref 123` is not line-leading `xref`+ws+digit at the keyword.
-        assert!(repair_xref_keyword(b"startxref\r\n834254\r\n%%EOF").is_none());
-    }
-}
-
 /// Resolve a page attribute, walking the Pages tree upward — MediaBox and
 /// Rotate are inheritable (PDF 32000-1 §7.7.3.4). Depth-capped against
 /// malformed Parent cycles; the returned object is already dereferenced.
@@ -245,5 +222,28 @@ fn page_rotation(doc: &PdfDocument, page_id: ObjectId) -> u8 {
         (r / 90) as u8
     } else {
         0
+    }
+}
+
+#[cfg(test)]
+mod repair_tests {
+    use super::repair_xref_keyword;
+
+    #[test]
+    fn normalizes_same_line_xref_header() {
+        let got = repair_xref_keyword(b"...\r\nxref 0 67\r\n0000 n\r\n").unwrap();
+        assert!(
+            got.windows(8).any(|w| w == b"xref\r\n0 "),
+            "got: {}",
+            String::from_utf8_lossy(&got)
+        );
+    }
+
+    #[test]
+    fn leaves_conforming_xref_untouched() {
+        // `xref` already followed by EOL → no change → None.
+        assert!(repair_xref_keyword(b"...\r\nxref\r\n0 67\r\n").is_none());
+        // `startxref 123` is not line-leading `xref`+ws+digit at the keyword.
+        assert!(repair_xref_keyword(b"startxref\r\n834254\r\n%%EOF").is_none());
     }
 }

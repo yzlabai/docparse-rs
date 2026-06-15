@@ -104,14 +104,24 @@ Cargo workspace，**17 个 crate**。核心不变量：**`core` 不依赖任何 
 
 ## 📦 可选模型
 
-全部 Apache-2.0，外部分发，不进二进制。
+全部 Apache-2.0，从各自原始仓库拉取为外部文件，不进二进制。核心**一个都不需要**：数字版 PDF 与其他所有格式零下载即可解析。按功能档位下载：
 
-| 目录 | 模型 | 驱动功能 |
+```bash
+./scripts/fetch-models.sh ocr        # --ocr               (~16 MB)
+./scripts/fetch-models.sh layout     # --layout（默认）     (~75 MB)
+./scripts/fetch-models.sh unirec     # --table/formula/transcribe-model (~700 MB)
+./scripts/fetch-models.sh ppv2       # --layout-model ppv2 (~210 MB + 一步本地预处理)
+./scripts/fetch-models.sh all
+```
+
+需 HuggingFace CLI（`pip install -U huggingface_hub`）；`ppv2` 另需 `onnx`+`onnxsim` 把图静态化给 `tract`（脚本会打印该命令）。
+
+| 档位 | 模型（来源） | 驱动功能 |
 |---|---|---|
-| `models/ppocr/`（~16 MB） | PP-OCRv4 det+rec（+cls） | `--ocr` 扫描件文字、自动转正 |
-| `models/layout/`（~75 MB） | DocLayout-YOLO | `--layout` 版面区域（默认）、公式检出 |
-| `models/layout-ppv2/`（~210 MB） | PP-DocLayoutV2 | 更丰富版面 + 原生读序（[A/B](docs/testresults/2026-06-15-ppv2-vs-yolo-omnidocbench.md)） |
-| `models/unirec/`（~700 MB） | UniRec-0.1B | `--table-model` / `--formula-model` / `--transcribe-model` |
+| `ocr` → `models/ppocr/`（~16 MB） | PP-OCRv4 det+rec+cls（`SWHL/RapidOCR`） | `--ocr` 扫描件文字、自动转正 |
+| `layout` → `models/layout/`（~75 MB） | DocLayout-YOLO（`wybxc/DocLayout-YOLO-DocStructBench-onnx`） | `--layout` 版面区域（默认）、公式检出 |
+| `ppv2` → `models/layout-ppv2/`（~210 MB） | PP-DocLayoutV2（`topdu/PP_DoclayoutV2_onnx`） | 更丰富版面 + 原生读序（[A/B](docs/testresults/2026-06-15-ppv2-vs-yolo-omnidocbench.md)） |
+| `unirec` → `models/unirec/`（~700 MB） | UniRec-0.1B（`topdu/unirec_0_1b_onnx`） | `--table-model` / `--formula-model` / `--transcribe-model` |
 
 > UniRec 与 PP-DocLayoutV2 是 [OpenOCR](https://github.com/Topdu/OpenOCR) **OpenDoc-0.1B** 的两半；我们用纯 Rust `tract` 运行其官方 ONNX，再用自己的确定性核心拼接。[选型理由 →](docs/refer/openocr-0.1b-evaluation.md)
 
