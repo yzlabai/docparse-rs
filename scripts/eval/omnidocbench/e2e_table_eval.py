@@ -85,8 +85,12 @@ def main():
         gt = html_to_cells(gt_html)
         if not pdf or not gt:
             continue
-        r = subprocess.run([BIN, pdf, "--ocr", "--layout", "--table-model", MODEL, "-f", "json"],
-                           capture_output=True, text=True)
+        cmd = [BIN, pdf, "--ocr", "--layout", "--table-model", MODEL, "-f", "json"]
+        # Layout-backend A/B: OMNIDOC_LAYOUT_MODEL selects YOLO vs PP-DocLayoutV2.
+        lm = os.environ.get("OMNIDOC_LAYOUT_MODEL")
+        if lm:
+            cmd += ["--layout-model", lm]
+        r = subprocess.run(cmd, capture_output=True, text=True)
         pred = None
         if r.returncode == 0 and r.stdout.strip():
             doc = json.loads(r.stdout)

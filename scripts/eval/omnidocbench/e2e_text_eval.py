@@ -69,6 +69,11 @@ def main():
         args = ([BIN, pdf, "--transcribe-model", os.path.join(ROOT, "models/unirec"), "-f", "text"]
                 if mode == "transcribe"
                 else [BIN, pdf, "--ocr", "--layout", "-f", "text"])
+        # Layout-backend A/B: OMNIDOC_LAYOUT_MODEL selects YOLO vs PP-DocLayoutV2
+        # (auto-detected from the ONNX). Unset → CLI default (DocLayout-YOLO).
+        lm = os.environ.get("OMNIDOC_LAYOUT_MODEL")
+        if lm and "--layout" in args:
+            args += ["--layout-model", lm]
         r = subprocess.run(args, capture_output=True, text=True)
         ours = norm(strip_display_math(r.stdout))
         # CHARACTER-level similarity: CJK has no spaces, so word-level split()
