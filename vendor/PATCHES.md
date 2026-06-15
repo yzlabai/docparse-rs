@@ -2,8 +2,12 @@
 
 These crates are local copies of crates.io tract, injected via root
 `Cargo.toml` `[patch.crates-io]`, carrying minimal fixes needed to run
-PP-DocLayoutV2 (RT-DETR) on tract. Goal: upstream every fix, then drop the
-vendor and return to a version dependency.
+PP-DocLayoutV2 (RT-DETR) on tract.
+
+**Decision (2026-06-15): these patches stay vendored on `main` long-term; no
+upstream PR is planned for now.** Rationale, maintenance-on-tract-bump, and
+when-to-drop are in [vendor/README.md](README.md). Ready-to-file PR drafts are
+kept in [UPSTREAM-PRS.md](UPSTREAM-PRS.md) in case we change our mind.
 
 Plan: [docs/plans/ppv2-layout-via-tract-patch.md](../docs/plans/ppv2-layout-via-tract-patch.md).
 Root cause analysis: [docs/analysis/2026-06-14-why-tract-cant-run-pp-doclayoutv2.md](../docs/analysis/2026-06-14-why-tract-cant-run-pp-doclayoutv2.md).
@@ -22,7 +26,7 @@ The typed-level `tract-core` `compute_shape` is already correct — only the HIR
 inference rule was wrong. Fix references `inputs[0]` with offset `n+batch_dims`.
 
 Effect: full simplified PP-DocLayoutV2 passes typecheck + optimize.
-Upstream: TODO file issue/PR (clear bug, minimal repro available).
+Upstream: not filed (decision above). Draft ready in UPSTREAM-PRS.md (clear bug, minimal repro available).
 
 ## #2 — tract-core 0.23.1 · TopK over TDim input — STATUS: ✅ verified
 
@@ -39,7 +43,7 @@ Localized to TopK; semantics unchanged for numeric inputs.
 Effect: PP-DocLayoutV2 evals **end-to-end** in tract; output matches ONNX
 Runtime on 5 sample pages (class 100%, score Δ<1.3e-6, box Δ<5e-4 px, reading
 order identical).
-Upstream: TODO file issue/PR (TopK should accept TDim/concrete-dim input).
+Upstream: not filed (decision above). Draft ready in UPSTREAM-PRS.md (TopK should accept TDim/concrete-dim input).
 
 ---
 **Gate G (plan §0): only 2 non-trivial tract fixes needed (≤6 budget). No
