@@ -39,7 +39,7 @@ D=./target/release/docparse
 $D input.pdf -f json       # full IR: provenance + coordinates
 $D input.pdf -f markdown   # Markdown
 $D input.pdf -f chunks     # RAG chunks (page + bbox + breadcrumbs)
-$D scan.pdf  --ocr         # OCR scans (free for digital pages; needs models/ppocr-v6)
+$D scan.pdf  --ocr         # OCR scans (free for digital pages; offers to fetch models/ppocr-v6 on first use)
 ```
 
 <details>

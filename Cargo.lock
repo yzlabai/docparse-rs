@@ -750,6 +750,7 @@ dependencies = [
  "serde_json",
  "tract-linalg",
  "tract-onnx",
+ "ureq",
  "zune-jpeg 0.4.21",
 ]
 

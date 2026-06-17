@@ -257,11 +257,59 @@ impl OcrState {
     pub(crate) fn get(&self) -> Result<&docparse_ocr::PpOcrEnhancer, String> {
         self.cell
             .get_or_init(|| {
+                ensure_ocr_models(&self.dir).map_err(|e| format!("{e:#}"))?;
                 docparse_ocr::PpOcrEnhancer::new(&self.dir).map_err(|e| format!("{e:#}"))
             })
             .as_ref()
             .map_err(Clone::clone)
     }
+}
+
+/// Make sure the OCR model dir is populated before the enhancer reads it.
+///
+/// For the built-in PP-OCRv6 default we can fetch the ~7 MB model set on first
+/// use. Downloading is a network action, so it's gated on an interactive y/N
+/// confirm; non-interactive faces (MCP/REST servers, pipes, CI) aren't a TTY
+/// and get a clear error with the fetch command instead. `DOCPARSE_OCR_DOWNLOAD=1`
+/// pre-confirms for automation that explicitly opts in.
+fn ensure_ocr_models(dir: &std::path::Path) -> anyhow::Result<()> {
+    use anyhow::Context as _;
+    use std::io::{IsTerminal, Write};
+    if docparse_ocr::fetch::models_present(dir) {
+        return Ok(());
+    }
+    let fetch_cmd = "./scripts/fetch-models.sh ppocr-v6";
+    if !docparse_ocr::fetch::is_default_v6_dir(dir) {
+        anyhow::bail!(
+            "OCR models not found in {}\n  download them with: {fetch_cmd}",
+            dir.display()
+        );
+    }
+    let preconfirmed = std::env::var_os("DOCPARSE_OCR_DOWNLOAD").is_some();
+    if !preconfirmed {
+        if !std::io::stdin().is_terminal() {
+            anyhow::bail!(
+                "OCR models not found at {}\n  run: {fetch_cmd}\n  \
+                 or set DOCPARSE_OCR_DOWNLOAD=1 to fetch non-interactively (~7 MB, Apache-2.0)",
+                dir.display()
+            );
+        }
+        eprint!(
+            "OCR models missing. Download PP-OCRv6 tiny (~7 MB, PaddlePaddle, Apache-2.0) \
+             to {}? [y/N] ",
+            dir.display()
+        );
+        std::io::stderr().flush().ok();
+        let mut answer = String::new();
+        std::io::stdin().read_line(&mut answer)?;
+        if !answer.trim().eq_ignore_ascii_case("y") {
+            anyhow::bail!("declined — fetch later with: {fetch_cmd}");
+        }
+    }
+    docparse_ocr::fetch::fetch_ppocr_v6(dir, |name| eprintln!("  ↓ {name}"))
+        .context("downloading PP-OCRv6 models")?;
+    eprintln!("  ✓ OCR models ready at {}", dir.display());
+    Ok(())
 }
 
 /// Run quality-routed enhancement over a parsed document (shared by all faces).
@@ -593,6 +641,7 @@ fn main() -> anyhow::Result<()> {
             .iter()
             .any(|a| a.needs_enhancement);
         if needs {
+            ensure_ocr_models(&cli.ocr_models)?;
             let ocr = docparse_ocr::PpOcrEnhancer::new(&cli.ocr_models)?;
             let (enhanced, report) = docparse_core::enhance::apply(&doc, &[&ocr]);
             doc = enhanced;

@@ -17,7 +17,8 @@ cargo build --release            # 优化构建（lto=thin, codegen-units=1）
 ./target/release/docparse <file.pdf> -f json|markdown|text|chunks [-o out]
 ./target/release/docparse mcp                # MCP stdio server（agent 直连）
 ./target/release/docparse serve --port 8642  # REST（绑 127.0.0.1）
-./target/release/docparse <scan.pdf> --ocr    # 扫描件 OCR（默认 PP-OCRv6 tiny，需 models/ppocr-v6；数字页零模型）
+./target/release/docparse <scan.pdf> --ocr    # 扫描件 OCR（默认 PP-OCRv6 tiny；数字页零模型）
+                                              # 缺 models/ppocr-v6 时 TTY 下 y/N 确认自动下载~7MB(非TTY报错;DOCPARSE_OCR_DOWNLOAD=1 预确认)
                                               # raw HF ONNX 直载(tract ignore_value_info,无 Python 静态化)、字典从 rec yml 抽；比 v4 更准(顿号)+快 2×+小
 ./target/release/docparse <scan.pdf> --ocr --ocr-models models/ppocr
                                               # 回退 PP-OCRv4

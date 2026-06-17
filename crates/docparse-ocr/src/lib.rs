@@ -30,6 +30,7 @@
 //! from 270° is a coin flip, worse than declining. Emitted bboxes are mapped
 //! back to viewing space so citations stay viewer-faithful.
 
+pub mod fetch;
 pub mod formula;
 pub mod layout;
 pub mod table_model;
