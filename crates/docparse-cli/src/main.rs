@@ -88,13 +88,14 @@ struct Cli {
     route_plan: bool,
 
     /// OCR quality-flagged pages (scans) with the embedded ONNX enhancer
-    /// (PP-OCRv4 via tract). Digital pages never touch the model. Requires
+    /// (PP-OCRv6 via tract). Digital pages never touch the model. Requires
     /// model files — see --ocr-models.
     #[arg(long)]
     ocr: bool,
 
-    /// Directory holding ch_PP-OCRv4_{det,rec}_infer.onnx + ppocr_keys_v1.txt.
-    #[arg(long, default_value = "models/ppocr")]
+    /// PP-OCR model dir (*det*.onnx / *rec*.onnx / *dict*.txt; any generation).
+    /// Default models/ppocr-v6 (PP-OCRv6 tiny); pass models/ppocr for v4.
+    #[arg(long, default_value = "models/ppocr-v6")]
     ocr_models: PathBuf,
 
     /// Print the per-page complexity profile (kind/image-coverage/tables) as
@@ -185,7 +186,7 @@ enum Command {
     /// agents can call parse/chunk/locate directly.
     Mcp {
         /// Model dir for the optional `ocr: true` tool argument.
-        #[arg(long, default_value = "models/ppocr")]
+        #[arg(long, default_value = "models/ppocr-v6")]
         ocr_models: PathBuf,
         /// Layout ONNX path for `layout`/`formula_model` tool arguments
         /// (DocLayout-YOLO or PP-DocLayoutV2, auto-detected).
@@ -215,7 +216,7 @@ enum Command {
         #[arg(long, default_value_t = 8642)]
         port: u16,
         /// Model dir for the optional `?ocr=true` query parameter.
-        #[arg(long, default_value = "models/ppocr")]
+        #[arg(long, default_value = "models/ppocr-v6")]
         ocr_models: PathBuf,
         /// Layout ONNX path for `?layout=true` / `?formula_model=true`
         /// (DocLayout-YOLO or PP-DocLayoutV2, auto-detected).

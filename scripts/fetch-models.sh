@@ -6,7 +6,8 @@
 # models/ (gitignored). All are Apache-2.0; we redistribute nothing — this
 # script pulls from the original HuggingFace repos.
 #
-#   ./scripts/fetch-models.sh ocr        # --ocr               (~16 MB)
+#   ./scripts/fetch-models.sh ppocr-v6   # --ocr (default)     (~6 MB + local prep)
+#   ./scripts/fetch-models.sh ocr        # --ocr v4 fallback   (~16 MB)
 #   ./scripts/fetch-models.sh layout     # --layout (default)  (~75 MB)
 #   ./scripts/fetch-models.sh unirec     # --table/formula/transcribe-model (~700 MB)
 #   ./scripts/fetch-models.sh ppv2       # --layout-model ppv2 (~210 MB + local prep)
@@ -86,14 +87,37 @@ fetch_ppv2() {
   echo "      --layout --layout-model $MODELS/layout-ppv2/PP-DoclayoutV2_simp.onnx"
 }
 
+fetch_ppocr_v6() {
+  echo "OCR v6 (PP-OCRv6 tiny, PaddlePaddle, Apache-2.0) → $MODELS/ppocr-v6/"
+  # Stage raw ONNX + rec yml (carries the char dict); det/rec live in separate
+  # _onnx repos, each as inference.onnx + inference.yml.
+  dl_file PaddlePaddle/PP-OCRv6_tiny_det_onnx "**/inference.onnx" "$MODELS/ppocr-v6/_raw/det.onnx"
+  dl_file PaddlePaddle/PP-OCRv6_tiny_rec_onnx "**/inference.onnx" "$MODELS/ppocr-v6/_raw/rec.onnx"
+  dl_file PaddlePaddle/PP-OCRv6_tiny_rec_onnx "**/inference.yml"  "$MODELS/ppocr-v6/_raw/rec.yml"
+  # v6 ships no new orientation classifier — reuse v4's (optional 0/180 cls).
+  dl_file SWHL/RapidOCR "**/ch_ppocr_mobile_v2.0_cls_infer.onnx" "$MODELS/ppocr-v6/ch_ppocr_mobile_v2.0_cls_infer.onnx"
+  echo ""
+  echo "  PP-OCRv6's official export has a dynamic graph (symbolic batch baked"
+  echo "  into intermediate shapes) tract can't shape-infer, and the dict lives"
+  echo "  in the rec yml. Static-ize + extract the dict once (needs a venv with"
+  echo "  onnx + pyyaml; onnxsim optional):"
+  echo ""
+  echo "      pip install onnx pyyaml"
+  echo "      python scripts/spike/ppocrv6/prepare.py"
+  echo ""
+  echo "  → produces $MODELS/ppocr-v6/{PP-OCRv6_tiny_det,_rec}_simp.onnx + ppocrv6_dict.txt,"
+  echo "    then run with  --ocr --ocr-models $MODELS/ppocr-v6"
+}
+
 case "${1:-}" in
-  ocr)    fetch_ocr ;;
-  layout) fetch_layout ;;
-  unirec) fetch_unirec ;;
-  ppv2)   fetch_ppv2 ;;
-  all)    fetch_ocr; fetch_layout; fetch_unirec; fetch_ppv2 ;;
+  ocr)      fetch_ocr ;;
+  ppocr-v6) fetch_ppocr_v6 ;;
+  layout)   fetch_layout ;;
+  unirec)   fetch_unirec ;;
+  ppv2)     fetch_ppv2 ;;
+  all)      fetch_ppocr_v6; fetch_ocr; fetch_layout; fetch_unirec; fetch_ppv2 ;;
   *)
-    echo "usage: $0 {ocr|layout|unirec|ppv2|all}" >&2
+    echo "usage: $0 {ocr|ppocr-v6|layout|unirec|ppv2|all}" >&2
     exit 1 ;;
 esac
 
