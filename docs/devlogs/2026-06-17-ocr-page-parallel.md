@@ -1,0 +1,70 @@
+# devlog · OCR 增强遍页级并行 + 解锁 rec_cache 串行点(2026-06-17)
+
+一句话:**研究"识别速度还能不能提升"时实测发现,OCR `enhance::apply` 这一遍是串行的、且 `recognize()` 的 `rec_cache` 锁持有到推理结束把 rec 全局串行化——朴素并行只到 3×,取出 `Arc` 释放锁后到 ~10×;落地页级并行 + 锁修复,多页扫描吞吐 18 核 10.2×,单页延迟不变。**
+
+计划:[plans/ocr-page-parallel.md](../plans/ocr-page-parallel.md)。背景研究承接 Phase 8(PP-OCRv6 内嵌),见 [status.md](../status.md) Phase 8b。
+
+## 缘起
+
+用户问"研究是否可以在识别速度和质量上有提升"。先核对 status.md §4:便宜旋钮(max_tokens/重采样/分辨率/det 参数/medium OCR/表模型天花板)已被逐一证伪,不再重提。读 OCR 管线代码找**结构性、还没碰过**的杠杆,定位到两处串行:
+
+1. 确定性 PDF 解析早已 rayon 页并行([pdf/lib.rs](../../crates/docparse-pdf/src/lib.rs) `inputs.par_iter()`),但 **OCR 增强这一遍是串行 `for page` 循环**([core/enhance.rs](../../crates/docparse-core/src/enhance.rs) `apply()`);
+2. 更隐蔽:[ocr/lib.rs](../../crates/docparse-ocr/src/lib.rs) `recognize()` 把 `rec_cache` 的 `MutexGuard` **持有到 `model.run()` 结束**(`model` 借自 guard),所有线程的 rec 推理被这把锁全局串行化。
+
+## Spike 先量,再实施
+
+诊断脚手架(`examples/bench_parallel.rs`,用完即删未入 repo):把 chinese_scan 扫描页内存复制成 18 页,对比串行 vs `par_iter` 跑 `enhance_page`,扫不同并行度。
+
+| 页级并行度 | 朴素并行(仅改页循环) | + rec_cache 锁修复 |
+|---|---|---|
+| 串行基线 | 5.03s(0.28s/页) | 同 |
+| par×2 | 1.57×(79%) | **1.99×(100%)** |
+| par×4 | 2.34× | **3.50×(88%)** |
+| par×8 | 2.90×(36%) | **5.50×(69%)** |
+| par×18 | **3.01×(封顶)** | **10.22×(57%)** |
+
+**关键判读**:原以为瓶颈是"tract 已多核、并行会过订阅"。实测**不是**——par×2 修锁后是完美 2.0×/100%,证明 tract 对小 rec crop 单次推理本就近单线程,3× 封顶**纯粹是那把锁**(朴素并行只有 det 能并行、rec 被锁死)。
+
+## 做了什么
+
+一个 commit,三处改动 + 单测:
+
+### 1. `enhance::apply` 页级并行(保序、限内存)
+- 串行 `for page` → 每页算 `(Page, Option<PageRoute>)` 的纯函数 `process`,经 scoped rayon `ThreadPool`(`min(cores, MAX_PAGE_PARALLELISM=8)`)并行 `map`。
+- **为什么是 8 不是核数**:扫描 buffer ~100MB/页,**内存是闸,不是核数**;效率拐点实测在 8 附近(8→18 只把 5.5×→10×)。常量留 `MAX_PAGE_PARALLELISM`,标 TODO 留作"按可用内存自适应"。
+- **保序**:索引化 `par_iter().collect()` 天然按页序;`report` 只收 `Some` 的路由,顺序与串行一致 → 输出字节一致(差异化记分牌硬约束)。
+- **少克隆**:重构 `Document` 时只 clone `source`/`provenance` 标量字段,`process` 已把每页 clone 一次,避免 `doc.clone()` 把 ~100MB buffer 二次复制。
+- 单页 / 无核信息 / `threads<=1` 走串行分支(零池开销)。
+
+### 2. `recognize()` 解锁 rec_cache
+- 锁块内 `entry(bucket).or_insert(...).clone()` 取出 `Arc<TypedRunnableModel>` 句柄→**块结束即释放锁**→锁外 `model.run()`。tract plan 不可变、`run(&self)` 并发安全,共享 `Arc` 跨线程 sound。
+
+### 3. core 加 `rayon` 依赖
+- 通用并行库,非 PDF 专属,**不破"core 不 use 任何 PDF 库"分层不变量**。
+
+### 4. 单测
+- `parallel_apply_preserves_order_and_is_deterministic`:20 页(超过并行度上限,多波次)、交替数字/扫描,断言**并行结果 == 串行预期(逐页 + report 顺序)+ 跨运行确定性**,用现有 `StubOcr`。
+
+## 验证
+
+- `cargo test` 全过(含新单测)、`cargo clippy --all-targets` 零 warning、touched 文件 `rustfmt --check` 过;
+- 三件套 born-digital(lorem/1901.03003/bialetti)字节不变——本改动不碰确定性路径,天然不变;
+- chinese_scan `--ocr -f text` 逐字不变(`上海、深圳`、14 行),锁修复无正确性回归。
+
+## 关键收获 / lesson
+
+1. **"过订阅"的直觉要量**:本以为 tract 多线程会让页级并行无效,实测 par×2=100% 反而揭穿真凶是一把锁。**性能瓶颈先量再下结论**(呼应 status §4 lesson 6/8)。
+2. **锁的作用域 = 串行的范围**:`MutexGuard` 借出 `&mut` 句柄会把锁一路持有到函数尾;取 `Arc` clone 立即释放是解并发的标准手法。
+3. **并行只解吞吐,不解延迟**:本次只提升多页扫描吞吐;单页延迟(0.28s/页)纹丝不动——那要走页内杠杆(rec 同桶批处理 / 框并行),正交、未做。
+4. **`cargo fmt -- <文件>` 不按文件过滤**,会格式化整个 workspace、顺带改既存 drift;只想格式化特定文件用 `rustfmt <文件>`。本次误触的 5 个无关 crate 已还原,保持 diff 聚焦。
+
+## 待办(未做,正交)
+
+- **页内杠杆攻单页延迟**:rec 同 width-bucket 批处理(`[N,3,48,bucket]` 一次推理)或 rec 框 rayon 并行;
+- `MAX_PAGE_PARALLELISM` 按可用内存自适应(现为固定 8 + TODO)。
+
+## 关键文件
+
+- [crates/docparse-core/src/enhance.rs](../../crates/docparse-core/src/enhance.rs)——`apply()` 页并行 + 单测
+- [crates/docparse-ocr/src/lib.rs](../../crates/docparse-ocr/src/lib.rs)——`recognize()` rec_cache 解锁
+- [docs/plans/ocr-page-parallel.md](../plans/ocr-page-parallel.md)——计划与设计决策

@@ -11,7 +11,17 @@
 
 use crate::ir::{Document, Page};
 use crate::quality::{self, PageAssessment, QualityFlag};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+
+/// Page-parallel enhancement cap. Enhancement is CPU-bound (det conv net +
+/// per-line rec) and pages are independent, so it parallelizes like the
+/// deterministic parse — but each in-flight scan buffer is ~100MB, so memory,
+/// not cores, is the binding constraint. 8 sits past the efficiency knee
+/// measured on an 18-core box (8→18 threads only lifts 5.5×→10×) while keeping
+/// peak buffer memory bounded.
+// TODO: make this adaptive to available memory instead of a fixed cap.
+const MAX_PAGE_PARALLELISM: usize = 8;
 
 /// What an enhancer can do, versioned for reproducibility/observability.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,13 +101,15 @@ pub fn plan(doc: &Document, enhancers: &[&dyn Enhancer]) -> Vec<PageRoute> {
 /// its output. The deterministic pages pass through untouched. Returns the new
 /// document and the per-page routing report.
 pub fn apply(doc: &Document, enhancers: &[&dyn Enhancer]) -> (Document, Vec<PageRoute>) {
-    let mut out = doc.clone();
-    let mut report = Vec::new();
-
-    for page in &mut out.pages {
+    // Per-page work: assess, route to the first capable enhancer, and merge its
+    // output. Pure — reads the page, returns a (possibly replaced) page plus the
+    // route record (`None` for pages that didn't need enhancement, matching the
+    // old loop's `continue`-before-push). No cross-page shared state, so pages
+    // run independently in parallel below.
+    let process = |page: &Page| -> (Page, Option<PageRoute>) {
         let assessment = quality::assess_page(page);
         if !assessment.needs_enhancement {
-            continue;
+            return (page.clone(), None);
         }
         let mut route = PageRoute {
             page: page.number,
@@ -105,6 +117,7 @@ pub fn apply(doc: &Document, enhancers: &[&dyn Enhancer]) -> (Document, Vec<Page
             enhancer: None,
             applied: false,
         };
+        let mut replaced = None;
         for e in enhancers {
             let cap = e.capability();
             if !assessment.flags.iter().any(|&f| cap.covers(f)) {
@@ -112,13 +125,47 @@ pub fn apply(doc: &Document, enhancers: &[&dyn Enhancer]) -> (Document, Vec<Page
             }
             route.enhancer = Some(cap.name.clone());
             if let Some(enhanced) = e.enhance_page(page) {
-                *page = enhanced;
+                replaced = Some(enhanced);
                 route.applied = true;
                 break;
             }
         }
-        report.push(route);
+        (replaced.unwrap_or_else(|| page.clone()), Some(route))
+    };
+
+    // Parallelize across pages (CPU-bound, independent) through a bounded pool
+    // so peak scan-buffer memory stays capped. An indexed `par_iter().collect()`
+    // preserves page order, keeping output byte-identical to the serial path.
+    let threads = std::thread::available_parallelism()
+        .map(|c| c.get())
+        .unwrap_or(1)
+        .clamp(1, MAX_PAGE_PARALLELISM);
+    let results: Vec<(Page, Option<PageRoute>)> = if threads <= 1 || doc.pages.len() <= 1 {
+        doc.pages.iter().map(&process).collect()
+    } else {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .expect("rayon pool");
+        pool.install(|| doc.pages.par_iter().map(&process).collect())
+    };
+
+    // Split results into pages + report. Each page was cloned at most once (in
+    // `process`); reconstruct the doc cloning only the light scalar fields so
+    // ~100MB scan buffers aren't copied a second time via `doc.clone()`.
+    let mut pages = Vec::with_capacity(results.len());
+    let mut report = Vec::new();
+    for (page, route) in results {
+        pages.push(page);
+        if let Some(route) = route {
+            report.push(route);
+        }
     }
+    let out = Document {
+        source: doc.source.clone(),
+        provenance: doc.provenance.clone(),
+        pages,
+    };
     (out, report)
 }
 
@@ -254,5 +301,58 @@ mod tests {
         assert_eq!(report.len(), 1);
         assert_eq!(report[0].enhancer, None);
         assert!(!report[0].applied);
+    }
+
+    #[test]
+    fn parallel_apply_preserves_order_and_is_deterministic() {
+        // More pages than MAX_PAGE_PARALLELISM so the page-parallel path runs in
+        // several waves; alternate digital/scanned so routing is non-trivial.
+        let pages: Vec<Page> = (1..=20)
+            .map(|n| {
+                if n % 2 == 0 {
+                    page(n, None)
+                } else {
+                    page(n, Some("digital"))
+                }
+            })
+            .collect();
+        let d = doc(pages);
+        let ocr = StubOcr;
+        let (out, report) = apply(&d, &[&ocr]);
+
+        // Page order preserved; each page handled per its kind (parallel collect
+        // must be byte-identical to the serial loop — the determinism contract).
+        assert_eq!(out.pages.len(), 20);
+        for (i, p) in out.pages.iter().enumerate() {
+            let n = i + 1;
+            assert_eq!(p.number, n, "page order preserved");
+            match &p.elements[0] {
+                Element::Text(t) if n % 2 == 0 => {
+                    assert!(t.text.starts_with("[ocr]"), "scanned page {n} enhanced")
+                }
+                Element::Text(t) => assert_eq!(t.text, "digital", "digital page {n} untouched"),
+                _ => panic!("expected text on page {n}"),
+            }
+        }
+
+        // Report holds only the scanned pages, in ascending page order.
+        let routed: Vec<usize> = report.iter().map(|r| r.page).collect();
+        let expected: Vec<usize> = (1..=20).filter(|n| n % 2 == 0).collect();
+        assert_eq!(routed, expected);
+        assert!(report.iter().all(|r| r.applied));
+
+        // Determinism: identical output across runs regardless of thread schedule.
+        let texts = |dd: &Document| -> Vec<String> {
+            dd.pages
+                .iter()
+                .map(|p| match &p.elements[0] {
+                    Element::Text(t) => t.text.clone(),
+                    _ => unreachable!(),
+                })
+                .collect()
+        };
+        let (out2, report2) = apply(&d, &[&ocr]);
+        assert_eq!(texts(&out), texts(&out2));
+        assert_eq!(routed, report2.iter().map(|r| r.page).collect::<Vec<_>>());
     }
 }

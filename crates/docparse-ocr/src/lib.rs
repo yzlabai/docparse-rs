@@ -346,16 +346,26 @@ impl PpOcrEnhancer {
         let rw = rw.min(bucket);
         let resized = resize_bilinear(rgb, w, h, rw, REC_HEIGHT);
 
-        let mut cache = self.rec_cache.lock().unwrap();
-        let model = match cache.entry(bucket) {
-            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-            std::collections::hash_map::Entry::Vacant(e) => e.insert(
-                onnx_loader()
-                    .model_for_read(&mut &self.rec_bytes[..])?
-                    .with_input_fact(0, f32::fact([1, 3, REC_HEIGHT, bucket]).into())?
-                    .into_optimized()?
-                    .into_runnable()?,
-            ),
+        // Clone the per-bucket model handle (an `Arc`) out and release the lock
+        // BEFORE running inference. Holding the cache mutex across `model.run`
+        // would globally serialize all recognition, capping page-parallel OCR
+        // (enhance::apply) at ~3× instead of ~10× (measured 2026-06-17). tract
+        // plans are immutable and `run(&self)` is concurrency-safe, so sharing
+        // the `Arc` across threads is sound.
+        let model = {
+            let mut cache = self.rec_cache.lock().unwrap();
+            match cache.entry(bucket) {
+                std::collections::hash_map::Entry::Occupied(e) => e.get().clone(),
+                std::collections::hash_map::Entry::Vacant(e) => e
+                    .insert(
+                        onnx_loader()
+                            .model_for_read(&mut &self.rec_bytes[..])?
+                            .with_input_fact(0, f32::fact([1, 3, REC_HEIGHT, bucket]).into())?
+                            .into_optimized()?
+                            .into_runnable()?,
+                    )
+                    .clone(),
+            }
         };
 
         let mut t = Tensor::zero::<f32>(&[1, 3, REC_HEIGHT, bucket])?;

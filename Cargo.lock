@@ -683,6 +683,7 @@ dependencies = [
  "anyhow",
  "chardetng",
  "encoding_rs",
+ "rayon",
  "serde",
  "serde_json",
 ]
