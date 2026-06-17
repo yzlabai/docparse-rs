@@ -3,7 +3,9 @@ name = "docparse-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "CLI for docparse-rs"
+repository.workspace = true
+homepage.workspace = true
+description = "CLI for docparse-rs — a fast, pure-Rust, single-binary document parser for agents & RAG"
 
 [[bin]]
 name = "docparse"

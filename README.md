@@ -30,39 +30,65 @@ docparse-rs turns **PDF · DOCX · HTML · XLSX · PPTX · Markdown · CSV · SR
 - 🛡️ **Security pre-checks** — hidden-text filtering (flagged & auditable, never silently dropped), zip-bomb & page-count guards, per-page complexity profiling
 - 🧩 **Pluggable AI boundary** — the deterministic core stands alone; models trigger only on hard pages and carry a `source` tag + capped confidence
 
+## 📥 Install
+
+**Prebuilt binary** — no toolchain, macOS · Linux · Windows (from [Releases](https://github.com/yzlabai/docparse-rs/releases)):
+
+```bash
+# macOS / Linux
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/yzlabai/docparse-rs/releases/latest/download/docparse-cli-installer.sh | sh
+```
+
+```powershell
+# Windows (PowerShell)
+powershell -c "irm https://github.com/yzlabai/docparse-rs/releases/latest/download/docparse-cli-installer.ps1 | iex"
+```
+
+**With Cargo** (builds from source; honors the vendored `tract` patch):
+
+```bash
+cargo install --git https://github.com/yzlabai/docparse-rs docparse-cli
+```
+
+**Build locally** (development):
+
+```bash
+git clone https://github.com/yzlabai/docparse-rs && cd docparse-rs
+cargo build --release   # → ./target/release/docparse
+```
+
+All three give you the `docparse` binary. The core needs no models — optional tiers are fetched on demand ([Optional models](#-optional-models)).
+
 ## 🚀 Quick start
 
 ```bash
-cargo build --release
-D=./target/release/docparse
-
-$D input.pdf -f json       # full IR: provenance + coordinates
-$D input.pdf -f markdown   # Markdown
-$D input.pdf -f chunks     # RAG chunks (page + bbox + breadcrumbs)
-$D scan.pdf  --ocr         # OCR scans (free for digital pages; offers to fetch models/ppocr-v6 on first use)
+docparse input.pdf -f json       # full IR: provenance + coordinates
+docparse input.pdf -f markdown   # Markdown
+docparse input.pdf -f chunks     # RAG chunks (page + bbox + breadcrumbs)
+docparse scan.pdf  --ocr         # OCR scans (free for digital pages; offers to fetch models/ppocr-v6 on first use)
 ```
 
 <details>
 <summary><b>More commands — layout · tables · formulas · VLM</b></summary>
 
 ```bash
-$D hard.pdf --layout                                   # layout-model reading order (DocLayout-YOLO; needs models/layout)
-$D hard.pdf --layout --layout-model models/layout-ppv2/PP-DoclayoutV2_simp.onnx   # PP-DocLayoutV2 backend (~3x YOLO on messy tables)
-$D doc.pdf  --table-model models/unirec                # merged-cell table structure (in-process, no service)
-$D doc.pdf  --formula-model models/unirec              # formula → LaTeX
-$D doc.pdf  --transcribe-model models/unirec           # full-page transcription (zh/en hard layouts & scans)
-$D doc.pdf  --vlm-describe --vlm-url URL --vlm-model M # figure captions via an OpenAI-compatible VLM
-$D doc.pdf  --vlm-tables   --vlm-url URL --vlm-model M # VLM table re-extraction (failures keep the deterministic grid)
-$D doc.pdf  --image-dir imgs/                          # export embedded images (JSON "file" / Markdown ![]())
-$D input.pdf --quality --profile --route-plan          # quality / per-page profile / routing (JSON on stderr)
+docparse hard.pdf --layout                                   # layout-model reading order (DocLayout-YOLO; needs models/layout)
+docparse hard.pdf --layout --layout-model models/layout-ppv2/PP-DoclayoutV2_simp.onnx   # PP-DocLayoutV2 backend (~3x YOLO on messy tables)
+docparse doc.pdf  --table-model models/unirec                # merged-cell table structure (in-process, no service)
+docparse doc.pdf  --formula-model models/unirec              # formula → LaTeX
+docparse doc.pdf  --transcribe-model models/unirec           # full-page transcription (zh/en hard layouts & scans)
+docparse doc.pdf  --vlm-describe --vlm-url URL --vlm-model M # figure captions via an OpenAI-compatible VLM
+docparse doc.pdf  --vlm-tables   --vlm-url URL --vlm-model M # VLM table re-extraction (failures keep the deterministic grid)
+docparse doc.pdf  --image-dir imgs/                          # export embedded images (JSON "file" / Markdown ![]())
+docparse input.pdf --quality --profile --route-plan          # quality / per-page profile / routing (JSON on stderr)
 ```
 </details>
 
 ### Plug into an agent
 
 ```bash
-claude mcp add docparse -- /path/to/docparse mcp     # MCP tools: parse_document / get_chunks / locate
-$D serve --port 8642                                  # REST: POST /parse (multipart) + GET /healthz
+claude mcp add docparse -- docparse mcp     # MCP tools: parse_document / get_chunks / locate
+docparse serve --port 8642                                  # REST: POST /parse (multipart) + GET /healthz
 curl -F "file=@doc.pdf" "http://127.0.0.1:8642/parse?format=chunks&ocr=true"
 ```
 

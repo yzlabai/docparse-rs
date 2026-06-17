@@ -26,6 +26,8 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["docparse-rs contributors"]
+repository = "https://github.com/yzlabai/docparse-rs"
+homepage = "https://github.com/yzlabai/docparse-rs"
 
 # Centralized dependency versions — crates inherit via `dep.workspace = true`.
 [workspace.dependencies]
@@ -73,3 +75,23 @@ strip = true
 [patch.crates-io]
 tract-hir = { path = "vendor/tract-hir" }
 tract-core = { path = "vendor/tract-core" }
+
+# Prebuilt-binary release pipeline (`dist` / cargo-dist). `dist generate`
+# turns this into .github/workflows/release.yml: tagging `v*` builds the
+# `docparse` binary for each target on GitHub-hosted runners and publishes a
+# GitHub Release with a `curl … | sh` (and PowerShell) installer + checksums.
+# CI builds from source, so the vendored tract patch above applies normally.
+# Bump `cargo-dist-version` and re-run `dist generate` to update the workflow.
+[workspace.metadata.dist]
+cargo-dist-version = "0.32.0"
+ci = "github"
+installers = ["shell", "powershell"]
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+install-path = "CARGO_HOME"
+install-updater = false
+pr-run-mode = "plan"

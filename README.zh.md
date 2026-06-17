@@ -30,39 +30,65 @@ docparse-rs 把 **PDF · DOCX · HTML · XLSX · PPTX · Markdown · CSV · SRT/
 - 🛡️ **安全预检** —— 隐藏文本过滤（标注可审计，绝不静默删除）、zip-bomb / 页数守卫、页级复杂度画像
 - 🧩 **可插拔 AI 边界** —— 确定性核心独立成立；模型只在难页触发，产出带 `source` 标签与降级置信度
 
+## 📥 安装
+
+**预编译二进制** —— 免工具链，macOS · Linux · Windows（见 [Releases](https://github.com/yzlabai/docparse-rs/releases)）：
+
+```bash
+# macOS / Linux
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/yzlabai/docparse-rs/releases/latest/download/docparse-cli-installer.sh | sh
+```
+
+```powershell
+# Windows (PowerShell)
+powershell -c "irm https://github.com/yzlabai/docparse-rs/releases/latest/download/docparse-cli-installer.ps1 | iex"
+```
+
+**用 Cargo**（从源码构建，自动应用 vendored `tract` 补丁）：
+
+```bash
+cargo install --git https://github.com/yzlabai/docparse-rs docparse-cli
+```
+
+**本地构建**（开发）：
+
+```bash
+git clone https://github.com/yzlabai/docparse-rs && cd docparse-rs
+cargo build --release   # → ./target/release/docparse
+```
+
+三种方式都得到 `docparse` 二进制。核心不需要任何模型，可选档按需下载（见 [可选模型](#-可选模型)）。
+
 ## 🚀 快速开始
 
 ```bash
-cargo build --release
-D=./target/release/docparse
-
-$D input.pdf -f json       # 完整 IR：provenance + 坐标
-$D input.pdf -f markdown   # Markdown
-$D input.pdf -f chunks     # RAG 切块（page + bbox + 面包屑）
-$D scan.pdf  --ocr         # 扫描件 OCR（数字页零成本；需 models/ppocr）
+docparse input.pdf -f json       # 完整 IR：provenance + 坐标
+docparse input.pdf -f markdown   # Markdown
+docparse input.pdf -f chunks     # RAG 切块（page + bbox + 面包屑）
+docparse scan.pdf  --ocr         # 扫描件 OCR（数字页零成本；首次用会提示拉取 models/ppocr-v6）
 ```
 
 <details>
 <summary><b>更多命令 —— 版面 · 表格 · 公式 · VLM</b></summary>
 
 ```bash
-$D hard.pdf --layout                                   # 版面模型重排读序（DocLayout-YOLO；需 models/layout）
-$D hard.pdf --layout --layout-model models/layout-ppv2/PP-DoclayoutV2_simp.onnx   # PP-DocLayoutV2 后端（杂版面表检测 ≈3× YOLO）
-$D doc.pdf  --table-model models/unirec                # 合并格表结构（进程内，无服务）
-$D doc.pdf  --formula-model models/unirec              # 公式 → LaTeX
-$D doc.pdf  --transcribe-model models/unirec           # 整页转写（中英难版面 / 扫描件）
-$D doc.pdf  --vlm-describe --vlm-url URL --vlm-model M # 经 OpenAI 兼容 VLM 做图片描述
-$D doc.pdf  --vlm-tables   --vlm-url URL --vlm-model M # VLM 重抽表结构（失败保底确定性网格）
-$D doc.pdf  --image-dir imgs/                          # 导出嵌入图片（JSON "file" / Markdown ![]()）
-$D input.pdf --quality --profile --route-plan          # 质量分 / 页级画像 / 路由计划（stderr JSON）
+docparse hard.pdf --layout                                   # 版面模型重排读序（DocLayout-YOLO；需 models/layout）
+docparse hard.pdf --layout --layout-model models/layout-ppv2/PP-DoclayoutV2_simp.onnx   # PP-DocLayoutV2 后端（杂版面表检测 ≈3× YOLO）
+docparse doc.pdf  --table-model models/unirec                # 合并格表结构（进程内，无服务）
+docparse doc.pdf  --formula-model models/unirec              # 公式 → LaTeX
+docparse doc.pdf  --transcribe-model models/unirec           # 整页转写（中英难版面 / 扫描件）
+docparse doc.pdf  --vlm-describe --vlm-url URL --vlm-model M # 经 OpenAI 兼容 VLM 做图片描述
+docparse doc.pdf  --vlm-tables   --vlm-url URL --vlm-model M # VLM 重抽表结构（失败保底确定性网格）
+docparse doc.pdf  --image-dir imgs/                          # 导出嵌入图片（JSON "file" / Markdown ![]()）
+docparse input.pdf --quality --profile --route-plan          # 质量分 / 页级画像 / 路由计划（stderr JSON）
 ```
 </details>
 
 ### 接入 Agent
 
 ```bash
-claude mcp add docparse -- /path/to/docparse mcp     # MCP 工具：parse_document / get_chunks / locate
-$D serve --port 8642                                  # REST：POST /parse（multipart）+ GET /healthz
+claude mcp add docparse -- docparse mcp     # MCP 工具：parse_document / get_chunks / locate
+docparse serve --port 8642                                  # REST：POST /parse（multipart）+ GET /healthz
 curl -F "file=@doc.pdf" "http://127.0.0.1:8642/parse?format=chunks&ocr=true"
 ```
 
