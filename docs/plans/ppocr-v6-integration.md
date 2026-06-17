@@ -99,7 +99,8 @@
 - [x] **静态化整步已消除(`774fe54`)**:`prepare.py` 弃用并删除——tract `with_ignore_value_info` 让 raw HF ONNX 直载,字典从 rec yml 解析。下方 §6 的 prepare.py 布局**已作废**,以本条为准。
 - [x] [docs/status.md](../status.md) Phase 8 + [devlogs/2026-06-17-ppocr-v6-integration.md](../devlogs/2026-06-17-ppocr-v6-integration.md) 已补
 - [x] **Gate 2 廉价旋钮 A/B 已测并定案**(2026-06-17):`DET_SIDE` 640 与阈值 `0.2`/`1.4` 均**降级 v4**(数字/句号错)、对 v6 无收益 → **保持全局 960/0.3/1.6,不做 per-model**(det 参数全局共享,v4 挑参数 v6 鲁棒)。见 [评估 §6c](../refer/ppocr-v6-evaluation.md)。
-- [ ] Gate 2 余项(需更多资源):medium 档量化(需难样例)、OmniDocBench `--ocr` 记分牌回归(需 harness)、更多扫描样例。
+- [x] **Gate 2 medium 档已测**(2026-06-17,OmniDocBench 44 页):medium raw 直载跑通(验证大模型也无须静态化),但聚合质量 Δ=-0.023(测度伪差:表格子集+阅读顺序噪声+更全检测被不完整 GT 扣分)、慢 ~6.7×。**决定:tiny 留默认,medium 暂不上 tier**。见 [评估 §6d](../refer/ppocr-v6-evaluation.md)。
+- [ ] Gate 2 余项:OmniDocBench `--ocr` 正式记分牌(需官方 harness);干净印刷体扫描样例(手头无)。
 
 ## 6. 产品化落点(⚠️ 历史:静态化路线,已被 raw 直载取代)
 
