@@ -60,11 +60,38 @@
 
 ## 待办(未做,正交)
 
-- **页内杠杆攻单页延迟**:rec 同 width-bucket 批处理(`[N,3,48,bucket]` 一次推理)或 rec 框 rayon 并行;
+- ~~页内杠杆攻单页延迟~~ → **已做(见下)**;
 - `MAX_PAGE_PARALLELISM` 按可用内存自适应(现为固定 8 + TODO)。
+
+---
+
+## 迭代 2:页内 rec 并行攻单页延迟(同日,第二 commit)
+
+页级并行只解多页吞吐,**单页延迟**(交互式扫描的常见场景)不变。续研究——先量单页拆分(临时 `DOCPARSE_OCR_TIMING` 计时,用完即删):
+
+| 阶段 | 耗时(单页 chinese_scan,cold) | 占比 |
+|---|---|---|
+| det_boxes(一次 960×960 DBNet + 连通域) | ~206ms | **57%** |
+| cls/orient(≤8 次小 cls 投票) | ~7ms | 2% |
+| rec(14 框逐个) | ~148ms | **41%** |
+
+**判读**:det 是单次推理(tract 已内部多核,框级拆不动);**rec 是 14 个独立 crop,可并行**(锁已修、并发安全)。
+
+**A/B 实测**(warm,18 核,同 harness):
+
+| 配置 | 单页(warm) | 多页 18@par×8 |
+|---|---|---|
+| 页内 rec 并行 | **0.211s** | 0.922s |
+| 仅页级(rec 串行) | 0.275s | 0.909s |
+
+→ 页内并行**单页 1.31×**,但**多页 ~1.4% 慢**(嵌套 rayon 开销)。故落地**自适应**:`rayon::current_thread_index().is_some()` 判断是否已在并行池——单页(不在池,走全局池)并行 box;多页(已在页级池)串行 box,**不嵌套**。自适应实测:单页 0.211s(满 1.31×)+ 多页 0.888s(零回归)。
+
+**lesson 续**:并行的"该不该并"取决于上下文——同一段代码在单页该并、在多页池里不该并,`current_thread_index()` 是廉价的"我是否已在并行中"探针,比硬编码标志干净。
+
+**仍未做**:det 是单页新瓶颈(57%),但 v6 对 `DET_SIDE=640` 鲁棒(见 [refer/ppocr-v6-evaluation.md §6c](../refer/ppocr-v6-evaluation.md))——惟该常量全局共享、v4 在 640 降级,需 per-model 参数化(§6c 已因证据不足弃),留观察;rec 同桶批处理(`[N,3,48,bucket]`)是另一条未试路,但冷启每桶 `into_optimized` 编译才是单次 CLI 的隐藏成本,收益存疑。
 
 ## 关键文件
 
 - [crates/docparse-core/src/enhance.rs](../../crates/docparse-core/src/enhance.rs)——`apply()` 页并行 + 单测
-- [crates/docparse-ocr/src/lib.rs](../../crates/docparse-ocr/src/lib.rs)——`recognize()` rec_cache 解锁
+- [crates/docparse-ocr/src/lib.rs](../../crates/docparse-ocr/src/lib.rs)——`recognize()` rec_cache 解锁 + `ocr_boxes()` 自适应页内并行
 - [docs/plans/ocr-page-parallel.md](../plans/ocr-page-parallel.md)——计划与设计决策

@@ -3,7 +3,8 @@
 > 触发:研究"识别速度还能不能提升"时,spike 实测发现 OCR enhancer 这一遍是串行的,且有一个隐藏的全局锁把 rec 推理串行化——朴素并行只到 3×,修锁后到 ~10×。
 > 背景:[refer/ppocr-v6-evaluation.md](../refer/ppocr-v6-evaluation.md)、[n3-real-enhancer.md](n3-real-enhancer.md);速度记分牌见 [../status.md](../status.md) §6 差异化记分牌(吞吐项)。
 >
-> **状态(2026-06-17):已实施。** §4 三处改动全部落地 + enhance 模块加"多页并行 == 串行 + 确定性"单测;`cargo test` 全过、clippy 零 warning、fmt;三件套 born-digital 字节不变、chinese_scan `--ocr` 逐字不变(`上海、深圳`、14 行)。spike 量级(~10× 多页吞吐)由 §2 实测坐实,诊断脚手架用完即删未入 repo。
+> **状态(2026-06-17):已实施(两 commit)。** §4 三处改动全部落地 + enhance 模块加"多页并行 == 串行 + 确定性"单测;`cargo test` 全过、clippy 零 warning、fmt;三件套 born-digital 字节不变、chinese_scan `--ocr` 逐字不变(`上海、深圳`、14 行)。spike 量级(~10× 多页吞吐)由 §2 实测坐实,诊断脚手架用完即删未入 repo。
+> **第二 commit(§5 原列"另议"的单页延迟)**:`ocr_boxes` 自适应页内 rec 并行(`rayon::current_thread_index()` 判是否已在页级池),单页 1.31×(0.275→0.211s warm)+ 多页零回归;det 占单页 57% 是新底,留观察。详见 devlog 迭代 2。
 
 ## 1. 问题:两层串行,一层是隐藏锁
 

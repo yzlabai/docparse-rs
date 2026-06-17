@@ -40,6 +40,7 @@ pub mod unirec;
 use anyhow::{Context, Result};
 use docparse_core::enhance::{Capability, Enhancer};
 use docparse_core::ir::{BBox, Element, ImageChunk, ImageKind, Page, TextChunk};
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
@@ -196,7 +197,14 @@ impl PpOcrEnhancer {
             .collect())
     }
 
-    /// Recognize each detected box (top-to-bottom; layout re-orders downstream).
+    /// Recognize each detected box. Boxes are independent crops fed through the
+    /// (now lock-free, `Arc`-shared) recognizer, so a single-page scan runs them
+    /// in parallel — per-line rec is ~40% of single-page OCR latency and the
+    /// page-covering det inference can't be split, so this is ~1.3× end to end.
+    /// An indexed `par_iter().collect()` keeps the top-to-bottom order (layout
+    /// re-orders downstream anyway). When `enhance::apply` is already running
+    /// pages in parallel this stays serial (see the dispatch below) to avoid
+    /// nested oversubscription.
     fn ocr_boxes(
         &self,
         rgb: &[u8],
@@ -204,30 +212,44 @@ impl PpOcrEnhancer {
         _h: usize,
         boxes: &[[usize; 4]],
     ) -> Result<Vec<(String, [usize; 4], f32)>> {
-        let mut results = Vec::new();
-        for &[ox0, oy0, ox1, oy1] in boxes {
-            let (cw, ch) = (ox1.saturating_sub(ox0), oy1.saturating_sub(oy0));
-            if cw < 4 || ch < 4 {
-                continue;
-            }
-            let mut crop = vec![0u8; cw * ch * 3];
-            for y in 0..ch {
-                let src = ((oy0 + y) * w + ox0) * 3;
-                crop[y * cw * 3..(y + 1) * cw * 3].copy_from_slice(&rgb[src..src + cw * 3]);
-            }
-            if let Some((text, conf)) = self.recognize(&crop, cw, ch)? {
-                if std::env::var_os("DOCPARSE_OCR_DEBUG").is_some() {
-                    eprintln!(
-                        "ocr-debug: box {cw}x{ch}@({ox0},{oy0}) conf={conf:.2} | {}",
-                        &text.chars().take(40).collect::<String>()
-                    );
+        let one =
+            |&[ox0, oy0, ox1, oy1]: &[usize; 4]| -> Result<Option<(String, [usize; 4], f32)>> {
+                let (cw, ch) = (ox1.saturating_sub(ox0), oy1.saturating_sub(oy0));
+                if cw < 4 || ch < 4 {
+                    return Ok(None);
                 }
-                if conf >= MIN_CONFIDENCE && !text.trim().is_empty() {
-                    results.push((text, [ox0, oy0, ox1, oy1], conf));
+                let mut crop = vec![0u8; cw * ch * 3];
+                for y in 0..ch {
+                    let src = ((oy0 + y) * w + ox0) * 3;
+                    crop[y * cw * 3..(y + 1) * cw * 3].copy_from_slice(&rgb[src..src + cw * 3]);
                 }
-            }
-        }
-        Ok(results)
+                if let Some((text, conf)) = self.recognize(&crop, cw, ch)? {
+                    if std::env::var_os("DOCPARSE_OCR_DEBUG").is_some() {
+                        eprintln!(
+                            "ocr-debug: box {cw}x{ch}@({ox0},{oy0}) conf={conf:.2} | {}",
+                            &text.chars().take(40).collect::<String>()
+                        );
+                    }
+                    if conf >= MIN_CONFIDENCE && !text.trim().is_empty() {
+                        return Ok(Some((text, [ox0, oy0, ox1, oy1], conf)));
+                    }
+                }
+                Ok(None)
+            };
+        // Parallelize boxes ONLY when not already on a rayon worker — i.e. a
+        // single-page scan, where det+rec is the whole cost (intra-page rec is
+        // ~40% of it and the page-covering det can't be split, so this is ~1.3×).
+        // When `enhance::apply` is already running pages in parallel this runs on
+        // a pool thread (`current_thread_index().is_some()`); nesting box
+        // parallelism there only adds work-stealing overhead (measured ~1% worse)
+        // since the cores are already saturated by page parallelism.
+        let per_box: Vec<Option<(String, [usize; 4], f32)>> =
+            if rayon::current_thread_index().is_some() {
+                boxes.iter().map(one).collect::<Result<Vec<_>>>()?
+            } else {
+                boxes.par_iter().map(one).collect::<Result<Vec<_>>>()?
+            };
+        Ok(per_box.into_iter().flatten().collect())
     }
 
     /// Detect and undo page-level text rotation: 90/270 by det-box aspect

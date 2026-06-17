@@ -14,4 +14,5 @@ tract-onnx.workspace = true
 tract-linalg.workspace = true
 zune-jpeg.workspace = true
 ureq.workspace = true
+rayon.workspace = true
 docparse-raster = { path = "../docparse-raster" }

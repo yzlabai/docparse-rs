@@ -751,6 +751,7 @@ dependencies = [
  "anyhow",
  "docparse-core",
  "docparse-raster",
+ "rayon",
  "serde_json",
  "tract-linalg",
  "tract-onnx",
