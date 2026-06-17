@@ -88,7 +88,9 @@
 
 **lesson 续**:并行的"该不该并"取决于上下文——同一段代码在单页该并、在多页池里不该并,`current_thread_index()` 是廉价的"我是否已在并行中"探针,比硬编码标志干净。
 
-**仍未做**:det 是单页新瓶颈(57%),但 v6 对 `DET_SIDE=640` 鲁棒(见 [refer/ppocr-v6-evaluation.md §6c](../refer/ppocr-v6-evaluation.md))——惟该常量全局共享、v4 在 640 降级,需 per-model 参数化(§6c 已因证据不足弃),留观察;rec 同桶批处理(`[N,3,48,bucket]`)是另一条未试路,但冷启每桶 `into_optimized` 编译才是单次 CLI 的隐藏成本,收益存疑。
+**det 是单页的硬底(实测证明,非假设)**:进一步拆 `det_boxes` 内部(临时计时)——`det.run` **~198ms = 96%**,resize 2.7ms / normalize 0.9ms / component_boxes 0.4ms 合计仅 ~4ms。即"标量 CPU 藏在 det 里、可零风险优化"的假设**被证伪**:det 就是纯 tract 推理,且 tract 已多核。降 det 只剩两条**有质量风险**的路——① `DET_SIDE=960→640`(v6 鲁棒但常量全局共享、v4 降级,且 v6 在 640 输出也"变",§6c 已弃);② 换更小 det 模型。**结论:OCR 基础路径(扫描取文)速度到底**——多页 10×、单页 1.31×、det 198ms 是 tract×该模型的地板。
+
+**剩余未试速度杠杆(均在 OCR 基础路径外)**:UniRec int8 量化(表/公式/转写 AR 解码 169 tok/s、表 ~2.5s 的慢 opt-in 路;需离线量化 ONNX + 验 tract int8 支持,大 spike、收益面窄);rec 同桶批处理(冷启每桶 `into_optimized` 编译才是单次 CLI 隐藏成本,收益存疑)。
 
 ## 关键文件
 
