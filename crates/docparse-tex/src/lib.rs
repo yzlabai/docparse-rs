@@ -539,4 +539,79 @@ mod tests {
         assert_eq!(t[1], ("Deep".to_string(), SECTION_SIZES[1]));
         assert_eq!(t[2].0, "E = mc^2");
     }
+
+    // --- pure-helper unit tests (branches the integration tests don't reach) ---
+
+    #[test]
+    fn balanced_brace_arg_handles_nesting_and_failure() {
+        assert_eq!(balanced_brace_arg("{abc}").as_deref(), Some("abc"));
+        assert_eq!(balanced_brace_arg("  {a{b}c}").as_deref(), Some("a{b}c"));
+        assert_eq!(balanced_brace_arg("noargs"), None);
+        assert_eq!(balanced_brace_arg("{unclosed"), None);
+        assert_eq!(balanced_brace_arg(""), None);
+    }
+
+    #[test]
+    fn brace_arg_after_finds_command_anywhere() {
+        assert_eq!(
+            brace_arg_after("pre \\title{X} post", "\\title").as_deref(),
+            Some("X")
+        );
+        assert_eq!(brace_arg_after("no command here", "\\title"), None);
+    }
+
+    #[test]
+    fn section_of_levels_and_star_variants() {
+        assert_eq!(section_of("\\section{Intro}"), Some((0, "Intro".into())));
+        assert_eq!(section_of("\\subsection{Deep}"), Some((1, "Deep".into())));
+        assert_eq!(section_of("\\subsubsection{D}"), Some((2, "D".into())));
+        // \section* (unnumbered) strips the star.
+        assert_eq!(section_of("\\section*{Star}"), Some((0, "Star".into())));
+        // Longest-prefix-first: \subsection must not be read as \section.
+        assert_eq!(section_of("\\subsection{X}").map(|(l, _)| l), Some(1));
+        assert_eq!(section_of("\\paragraph{x}"), None);
+    }
+
+    #[test]
+    fn brace_balance_respects_escapes() {
+        assert_eq!(brace_balance("{a}"), 0);
+        assert_eq!(brace_balance("{{"), 2);
+        assert_eq!(brace_balance("a}"), -1);
+        assert_eq!(brace_balance("\\{ \\}"), 0); // escaped braces ignored
+        assert_eq!(brace_balance("x \\{ {"), 1);
+    }
+
+    #[test]
+    fn strip_comments_keeps_escaped_percent() {
+        assert_eq!(strip_comments("keep % drop\n"), "keep \n");
+        assert_eq!(strip_comments("a\\% b % c\n"), "a\\% b \n");
+        assert_eq!(strip_comments("% whole\n"), "\n");
+    }
+
+    #[test]
+    fn clean_inline_unwraps_nests_drops_and_unescapes() {
+        assert_eq!(clean_inline("\\textbf{x}"), "x");
+        // Repeated passes unwrap one nesting level each.
+        assert_eq!(clean_inline("\\textbf{\\emph{y}}"), "y");
+        // \cite is dropped entirely; surrounding whitespace collapses.
+        assert_eq!(clean_inline("a \\cite{ref} b"), "a b");
+        // Drop commands skip an optional [..] before the {..}.
+        assert_eq!(clean_inline("a\\footnote[2]{note} b"), "a b");
+        // Escaped specials and ~ normalize.
+        assert_eq!(clean_inline("50\\% off~now"), "50% off now");
+        assert_eq!(clean_inline("\\and joins"), ", joins");
+    }
+
+    #[test]
+    fn arg_span_measures_leading_group() {
+        assert_eq!(arg_span("{abc}rest"), 5);
+        assert_eq!(arg_span("  {ab}"), 6); // 2 lead + "{ab}"
+        assert_eq!(arg_span("noarg"), 0); // no group follows
+    }
+
+    #[test]
+    fn parse_tabular_splits_rows_and_drops_rules() {
+        let rows = parse_tabular("\\hline A & B \\\\ \\midrule 1 & 2 \\\\");
+        assert_eq!(rows, vec![vec!["A", "B"], vec!["1", "2"]]);
+    }
 }

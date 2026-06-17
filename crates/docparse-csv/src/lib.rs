@@ -94,4 +94,47 @@ mod tests {
         assert_eq!(rows[0], vec!["a", "b", "c"]);
         assert_eq!(rows[1], vec!["x,1", "say \"hi\"", "two\nlines"]);
     }
+
+    #[test]
+    fn empty_input_has_no_rows() {
+        assert!(parse_rows("").is_empty());
+        // Whitespace-only / blank lines are dropped, not kept as empty rows.
+        assert!(parse_rows("\n\n  \n").is_empty());
+    }
+
+    #[test]
+    fn final_row_without_trailing_newline() {
+        // The loop terminator must flush the last field even with no closing \n.
+        let rows = parse_rows("a,b\nc,d");
+        assert_eq!(rows, vec![vec!["a", "b"], vec!["c", "d"]]);
+    }
+
+    #[test]
+    fn crlf_line_endings() {
+        // \r is swallowed; \n terminates. Output must not carry stray \r.
+        let rows = parse_rows("a,b\r\nc,d\r\n");
+        assert_eq!(rows, vec![vec!["a", "b"], vec!["c", "d"]]);
+    }
+
+    #[test]
+    fn blank_lines_between_records_are_skipped() {
+        let rows = parse_rows("a,b\n\nc,d\n");
+        assert_eq!(rows, vec![vec!["a", "b"], vec!["c", "d"]]);
+    }
+
+    #[test]
+    fn trailing_empty_fields_are_preserved() {
+        // A blank cell at the end of a row is content-bearing structurally as
+        // long as the row has any non-empty field, and must be kept.
+        let rows = parse_rows("a,,c\n");
+        assert_eq!(rows, vec![vec!["a", "", "c"]]);
+    }
+
+    #[test]
+    fn quote_only_opens_at_field_start() {
+        // A `"` mid-field is literal (the opening-quote guard requires an empty
+        // field), so embedded quotes in unquoted fields pass through verbatim.
+        let rows = parse_rows("ab\"c\"d,e\n");
+        assert_eq!(rows, vec![vec!["ab\"c\"d", "e"]]);
+    }
 }

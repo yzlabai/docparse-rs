@@ -183,4 +183,65 @@ mod tests {
             .count();
         assert_eq!(n_text, 1);
     }
+
+    fn texts(doc: &Document) -> Vec<(String, f32)> {
+        doc.pages
+            .iter()
+            .flat_map(|p| &p.elements)
+            .filter_map(|e| match e {
+                Element::Text(t) => Some((t.text.clone(), t.font_size)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn collapse_ws_normalizes_runs() {
+        assert_eq!(collapse_ws("  a \n\t b   c "), "a b c");
+        assert_eq!(collapse_ws(""), "");
+    }
+
+    #[test]
+    fn heading_levels_map_to_descending_sizes() {
+        let doc = parse_str("<h1>a</h1><h2>b</h2><h3>c</h3><h4>d</h4><h5>e</h5><h6>f</h6>");
+        let sizes: Vec<f32> = texts(&doc).into_iter().map(|(_, s)| s).collect();
+        assert_eq!(sizes.len(), 6);
+        // Strictly descending h1..h6, all above the 12.0 body size.
+        for w in sizes.windows(2) {
+            assert!(w[0] > w[1], "{sizes:?}");
+        }
+        assert!(*sizes.last().unwrap() >= 12.0);
+    }
+
+    #[test]
+    fn list_items_get_bullet_prefix() {
+        let doc = parse_str("<ul><li>one</li><li>two</li></ul>");
+        let t: Vec<String> = texts(&doc).into_iter().map(|(s, _)| s).collect();
+        assert_eq!(t, vec!["- one", "- two"]);
+    }
+
+    #[test]
+    fn inline_formatting_is_flattened_with_ws_collapsed() {
+        let doc = parse_str("<p>Hello <b>brave</b>\n  <i>new</i> world</p>");
+        let t = texts(&doc);
+        assert_eq!(t[0].0, "Hello brave new world");
+    }
+
+    #[test]
+    fn nested_table_flattens_into_cell_text() {
+        let html = "<table><tr><td>outer <table><tr><td>inner</td></tr></table></td></tr></table>";
+        let doc = parse_str(html);
+        let tables: Vec<_> = doc
+            .pages
+            .iter()
+            .flat_map(|p| &p.elements)
+            .filter_map(|e| match e {
+                Element::Table(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+        // The single top-level table; nested cell text folds into the outer cell.
+        assert!(tables[0].rows[0][0].text.contains("outer"));
+        assert!(tables[0].rows[0][0].text.contains("inner"));
+    }
 }

@@ -194,4 +194,56 @@ mod tests {
         assert_eq!(tables[0].rows.len(), 2);
         assert_eq!(tables[0].rows[0][0].text, "H1");
     }
+
+    fn slide_texts(doc: &docparse_core::ir::Document, page: usize) -> Vec<(String, f32)> {
+        doc.pages[page]
+            .elements
+            .iter()
+            .filter_map(|e| match e {
+                Element::Text(t) => Some((t.text.clone(), t.font_size)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn ctr_title_placeholder_is_also_heading_sized() {
+        let s = r#"<p:sld xmlns:a="a" xmlns:p="p"><p:sp><p:ph type="ctrTitle"/><a:p><a:r><a:t>Cover</a:t></a:r></a:p></p:sp></p:sld>"#;
+        let doc = parse_bytes(&pptx_with(&[s])).unwrap();
+        let t = slide_texts(&doc, 0);
+        assert!(t.iter().any(|(s, sz)| s == "Cover" && *sz > 15.0), "{t:?}");
+    }
+
+    #[test]
+    fn multiple_runs_in_a_cell_join_with_space() {
+        let s = r#"<p:sld xmlns:a="a"><a:tbl><a:tr><a:tc><a:p><a:r><a:t>foo</a:t></a:r><a:r><a:t>bar</a:t></a:r></a:p></a:tc></a:tr></a:tbl></p:sld>"#;
+        let doc = parse_bytes(&pptx_with(&[s])).unwrap();
+        let tables: Vec<_> = doc.pages[0]
+            .elements
+            .iter()
+            .filter_map(|e| match e {
+                Element::Table(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tables[0].rows[0][0].text, "foo bar");
+    }
+
+    #[test]
+    fn empty_paragraphs_are_dropped() {
+        let s = r#"<p:sld xmlns:a="a" xmlns:p="p"><p:sp><a:p></a:p></p:sp><p:sp><a:p><a:r><a:t>real</a:t></a:r></a:p></p:sp></p:sld>"#;
+        let doc = parse_bytes(&pptx_with(&[s])).unwrap();
+        let t = slide_texts(&doc, 0);
+        assert_eq!(t.iter().filter(|(s, _)| s == "real").count(), 1);
+        assert!(t.iter().all(|(s, _)| !s.trim().is_empty()), "{t:?}");
+    }
+
+    #[test]
+    fn malformed_slide_xml_does_not_panic() {
+        // Truncated mid-tag: parser must keep what it had and never panic.
+        let s = r#"<p:sld xmlns:a="a"><p:sp><a:p><a:r><a:t>partial</a:t></a:r></a:p></p:sp><a:tbl><a:tr><a:tc"#;
+        let doc = parse_bytes(&pptx_with(&[s])).unwrap();
+        let t = slide_texts(&doc, 0);
+        assert!(t.iter().any(|(s, _)| s == "partial"), "{t:?}");
+    }
 }

@@ -220,4 +220,68 @@ mod tests {
         assert_eq!(t.len(), 1);
         assert!(t[0].0.starts_with("Plain sentence."));
     }
+
+    #[test]
+    fn split_marker_requires_run_then_space() {
+        assert_eq!(split_marker("== Heading", '='), Some((2, "Heading")));
+        assert_eq!(split_marker("* item", '*'), Some((1, "item")));
+        // A marker run with no following space is not a marker (e.g. inline
+        // bold `*bold*` or a bare `===` rule line).
+        assert_eq!(split_marker("*bold*", '*'), None);
+        assert_eq!(split_marker("===", '='), None);
+        assert_eq!(split_marker("text", '='), None);
+    }
+
+    #[test]
+    fn quote_and_literal_blocks() {
+        // ____ quote delimiters drop; inner text reads as a paragraph. ....
+        // literal keeps its lines verbatim.
+        let doc = parse_str("____\nquoted text\n____\n\n....\nverbatim line\n....\n");
+        let t = texts(&doc);
+        let strs: Vec<&str> = t.iter().map(|(s, _)| s.as_str()).collect();
+        assert!(strs.contains(&"quoted text"));
+        assert!(strs.contains(&"verbatim line"));
+        // The delimiters themselves never surface as text.
+        assert!(t.iter().all(|(s, _)| s != "____" && s != "...."));
+    }
+
+    #[test]
+    fn block_attribute_lines_are_skipped() {
+        let doc = parse_str("[source,rust]\nfn main() {}\n");
+        let t = texts(&doc);
+        assert!(t.iter().all(|(s, _)| !s.starts_with('[')));
+        assert!(t.iter().any(|(s, _)| s == "fn main() {}"));
+    }
+
+    #[test]
+    fn ordinals_reset_between_lists() {
+        // A blank line ends the list; the next ordinal run restarts at 1.
+        let doc = parse_str(". one\n. two\n\n. fresh\n");
+        let t: Vec<String> = texts(&doc).into_iter().map(|(s, _)| s).collect();
+        assert_eq!(t, vec!["1. one", "2. two", "1. fresh"]);
+    }
+
+    #[test]
+    fn deep_headings_clamp_to_last_size() {
+        let doc = parse_str("===== five\n");
+        let (_, size) = texts(&doc).into_iter().next().unwrap();
+        assert_eq!(size, HEADING_SIZES[HEADING_SIZES.len() - 1]);
+    }
+
+    #[test]
+    fn unclosed_table_flushes_at_eof() {
+        let doc = parse_str("|===\n| a | b\n");
+        let tables: Vec<_> = doc
+            .pages
+            .iter()
+            .flat_map(|p| &p.elements)
+            .filter_map(|e| match e {
+                Element::Table(tb) => Some(tb),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tables.len(), 1);
+        assert_eq!(tables[0].rows[0][0].text, "a");
+        assert_eq!(tables[0].rows[0][1].text, "b");
+    }
 }

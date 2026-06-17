@@ -58,3 +58,21 @@ impl Rasterizer {
         Ok((w, h, rgb))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Rasterizer;
+
+    #[test]
+    fn invalid_pdf_bytes_error_not_panic() {
+        // The enhancer path must degrade gracefully: a bad PDF surfaces as an
+        // Err (caller skips enhancement for the page), never a panic.
+        let err = Rasterizer::new(b"not a pdf at all".to_vec());
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn empty_bytes_error_not_panic() {
+        assert!(Rasterizer::new(Vec::new()).is_err());
+    }
+}

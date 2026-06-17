@@ -176,4 +176,46 @@ mod tests {
         assert!(parse_bytes(b"not an image", "png").is_err());
         assert!(parse_bytes(b"not an image", "jpg").is_err());
     }
+
+    #[test]
+    fn full_page_image_invariants() {
+        let doc = parse_bytes(&tiny_png_gray(), "png").unwrap();
+        let page = &doc.pages[0];
+        let Element::Image(img) = &page.elements[0] else {
+            panic!("expected image element");
+        };
+        // The sole element is a full-page image at 1px=1pt, page 1, no rotation.
+        assert_eq!(img.page, 1);
+        assert_eq!(img.turns, 0);
+        assert_eq!((img.bbox.x0, img.bbox.y0), (0.0, 0.0));
+        assert_eq!((img.bbox.x1, img.bbox.y1), (page.width, page.height));
+        assert_eq!((img.bbox.x1, img.bbox.y1), (2.0, 2.0));
+    }
+
+    /// A 3×2 baseline JPEG (generated offline via `sips`, valid header).
+    fn tiny_jpeg() -> Vec<u8> {
+        const B64: &str = "/9j/4AAQSkZJRgABAQAASABIAAD/4QBMRXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAA6ADAAQAAAABAAAAAgAAAAD/7QA4UGhvdG9zaG9wIDMuMAA4QklNBAQAAAAAAAA4QklNBCUAAAAAABDUHYzZjwCyBOmACZjs+EJ+/8AAEQgAAgADAwEiAAIRAQMRAf/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/EAB8BAAMBAQEBAQEBAQEAAAAAAAABAgMEBQYHCAkKC//EALURAAIBAgQEAwQHBQQEAAECdwABAgMRBAUhMQYSQVEHYXETIjKBCBRCkaGxwQkjM1LwFWJy0QoWJDThJfEXGBkaJicoKSo1Njc4OTpDREVGR0hJSlNUVVZXWFlaY2RlZmdoaWpzdHV2d3h5eoKDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uLj5OXm5+jp6vLz9PX29/j5+v/bAEMAAgICAgICAwICAwUDAwMFBgUFBQUGCAYGBgYGCAoICAgICAgKCgoKCgoKCgwMDAwMDA4ODg4ODw8PDw8PDw8PD//bAEMBAgICBAQEBwQEBxALCQsQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEP/dAAQAAf/aAAwDAQACEQMRAD8A9C8F+AfAmseFNL1HVvDmm3t1LAoeaezhkkbb8q5ZlJOFAA54AArqP+FXfDP/AKFHSP8AwAt//iKl+HP/ACJGj/8AXH+prta9uh8EfQ/Usm/3Oj/hj+SP/9k=";
+        b64(B64)
+    }
+
+    #[test]
+    fn jpeg_reads_dims_and_passes_bytes_through_undecoded() {
+        let bytes = tiny_jpeg();
+        let doc = parse_bytes(&bytes, "jpeg").unwrap();
+        let page = &doc.pages[0];
+        assert_eq!((page.width, page.height), (3.0, 2.0));
+        let Element::Image(img) = &page.elements[0] else {
+            panic!("expected image element");
+        };
+        assert!(matches!(img.kind, ImageKind::Jpeg));
+        assert_eq!((img.width_px, img.height_px), (3, 2));
+        // Zero-transcode policy: the original JPEG bytes are carried verbatim.
+        assert_eq!(img.data, bytes);
+    }
+
+    #[test]
+    fn unsupported_extension_is_rejected() {
+        let err = parse_bytes(b"whatever", "gif").unwrap_err().to_string();
+        assert!(err.contains("unsupported image extension"), "{err}");
+    }
 }

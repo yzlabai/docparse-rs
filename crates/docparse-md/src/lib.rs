@@ -131,4 +131,52 @@ mod tests {
             .count();
         assert_eq!(tables, 1);
     }
+
+    fn texts(doc: &docparse_core::ir::Document) -> Vec<(String, f32)> {
+        doc.pages[0]
+            .elements
+            .iter()
+            .filter_map(|e| match e {
+                Element::Text(t) => Some((t.text.clone(), t.font_size)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn heading_levels_map_to_descending_sizes() {
+        let doc = parse_str("# H1\n\n## H2\n\n### H3\n\n#### H4\n\nbody\n");
+        let t = texts(&doc);
+        let size = |label: &str| t.iter().find(|(s, _)| s == label).unwrap().1;
+        // H1 > H2 > H3, H4+ collapses to the same fallback size, body is body.
+        assert!(size("H1") > size("H2"));
+        assert!(size("H2") > size("H3"));
+        assert!(size("H3") > size("H4"));
+        assert_eq!(size("H4"), 13.0);
+        assert_eq!(size("body"), 11.0);
+    }
+
+    #[test]
+    fn code_block_keeps_line_breaks() {
+        let doc = parse_str("```\nline1\nline2\n```\n");
+        let t = texts(&doc);
+        assert!(
+            t.iter().any(|(s, _)| s.contains("line1\nline2")),
+            "code block should preserve internal newlines: {t:?}"
+        );
+    }
+
+    #[test]
+    fn soft_break_becomes_space() {
+        // A single newline inside a paragraph is a soft break → joined by space.
+        let doc = parse_str("first\nsecond\n");
+        let t = texts(&doc);
+        assert!(t.iter().any(|(s, _)| s == "first second"), "{t:?}");
+    }
+
+    #[test]
+    fn empty_input_produces_no_text() {
+        let doc = parse_str("");
+        assert!(texts(&doc).is_empty());
+    }
 }

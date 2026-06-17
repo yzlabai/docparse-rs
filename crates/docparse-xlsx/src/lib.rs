@@ -92,4 +92,38 @@ mod tests {
         assert_eq!(cell_text(&Data::String("x".into())), "x");
         assert_eq!(cell_text(&Data::Empty), "");
     }
+
+    #[test]
+    fn integer_valued_floats_drop_the_decimal() {
+        // Whole numbers render without a trailing ".0"; negatives too.
+        assert_eq!(cell_text(&Data::Float(-7.0)), "-7");
+        assert_eq!(cell_text(&Data::Float(0.0)), "0");
+    }
+
+    #[test]
+    fn huge_floats_keep_full_precision() {
+        // Above the 1e15 guard we fall back to {f} rather than an i64 cast that
+        // would overflow / lose magnitude.
+        let s = cell_text(&Data::Float(1e16));
+        assert!(!s.is_empty());
+        assert!(s.contains("1") && (s.contains("e16") || s.contains("0000")), "{s}");
+    }
+
+    #[test]
+    fn int_bool_and_error_cells() {
+        assert_eq!(cell_text(&Data::Int(5)), "5");
+        assert_eq!(cell_text(&Data::Bool(true)), "true");
+        assert_eq!(cell_text(&Data::Bool(false)), "false");
+        // Errors are surfaced (with a leading '#'), never silently blanked.
+        let e = cell_text(&Data::Error(calamine::CellErrorType::Div0));
+        assert!(e.starts_with('#'), "{e}");
+    }
+
+    #[test]
+    fn iso_datetime_passes_through_verbatim() {
+        assert_eq!(
+            cell_text(&Data::DateTimeIso("2026-06-17T00:00:00".into())),
+            "2026-06-17T00:00:00"
+        );
+    }
 }

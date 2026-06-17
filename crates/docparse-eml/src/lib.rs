@@ -164,4 +164,32 @@ JVBERi0xLjQ=\r\n\
         assert!(t.iter().any(|s| s.contains("Hello world"))); // HTML → text
         assert!(t.iter().any(|s| s.starts_with("[attachment] r.pdf")));
     }
+
+    #[test]
+    fn multiple_recipients_are_comma_joined() {
+        let raw = b"From: a@b.c\r\n\
+To: Alice <alice@x.org>, bob@y.org\r\n\
+Subject: Hi\r\n\
+\r\n\
+body\r\n";
+        let doc = parse_bytes(raw).unwrap();
+        let to = texts(&doc)
+            .into_iter()
+            .find(|s| s.starts_with("To:"))
+            .expect("To line");
+        // Named and bare addresses both appear, comma-separated.
+        assert_eq!(to, "To: Alice <alice@x.org>, bob@y.org");
+    }
+
+    #[test]
+    fn subjectless_mail_still_yields_body() {
+        let raw = b"From: a@b.c\r\n\
+\r\n\
+just a body line\r\n";
+        let doc = parse_bytes(raw).unwrap();
+        let t = texts(&doc);
+        // No subject heading is emitted; the body is still mapped.
+        assert!(t.iter().any(|s| s == "just a body line"));
+        assert!(t.iter().all(|s| s != "Hi"));
+    }
 }
