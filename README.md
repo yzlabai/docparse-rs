@@ -98,6 +98,13 @@ from docparse_client.langchain import DocparseLoader
 docs = DocparseLoader("paper.pdf").load()   # one Document per chunk, page + bbox metadata
 ```
 
+**Agent Skill** — a [SKILL.md](skills/docparse-document-intelligence/SKILL.md) bundle that teaches a coding agent (Claude Code / Cursor) to drive the `docparse` CLI: format selection, OCR/table/formula decision matrix, and a parse → self-check (`--quality`/`--profile`) → refine loop. Symlink it where the agent looks for skills:
+
+```bash
+mkdir -p .claude/skills
+ln -s "$(pwd)/skills/docparse-document-intelligence" .claude/skills/   # or ~/.claude/skills (global), ~/.cursor/skills (Cursor)
+```
+
 ## 📊 Quality
 
 Scored on **[OmniDocBench](https://github.com/opendatalab/OmniDocBench)** (CVPR 2025) against **human ground truth**, using the embedded UniRec models:

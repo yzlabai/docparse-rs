@@ -98,6 +98,13 @@ from docparse_client.langchain import DocparseLoader
 docs = DocparseLoader("paper.pdf").load()   # 每 chunk 一个 Document，metadata 带 page + bbox
 ```
 
+**Agent Skill** —— 一个 [SKILL.md](skills/docparse-document-intelligence/SKILL.md) 技能包，教编码 agent（Claude Code / Cursor）按症状驱动 `docparse` CLI：格式选择、OCR/表/公式决策矩阵、以及"解析 → 自检（`--quality`/`--profile`）→ 迭代"循环。软链到 agent 查找技能的目录即可：
+
+```bash
+mkdir -p .claude/skills
+ln -s "$(pwd)/skills/docparse-document-intelligence" .claude/skills/   # 或 ~/.claude/skills（全局）、~/.cursor/skills（Cursor）
+```
+
 ## 📊 质量
 
 在 **[OmniDocBench](https://github.com/opendatalab/OmniDocBench)**（CVPR 2025）上对**人工真值**打分，使用内嵌 UniRec 模型：
