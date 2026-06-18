@@ -106,5 +106,10 @@ broken.pdf          —       0.73   —       —         ERROR: failed parsing
 
 ## 4. 已知限制
 
-- **版面模型仍每文件加载**:`--layout`(及 `--formula-model`/`--transcribe-model` 内部用到的版面检测)的 ONNX 模型目前仍每文件从路径加载——这与服务端(MCP/REST)行为一致,需改 `docparse-ocr` 的 `enhance_document`/`enhance_formulas`/`transcribe_pages` 接受预载 `LayoutModel` 才能复用,属更大的跨 crate 改动,暂未做。OCR 与 UniRec 模型已整批只载一次。
+> 这些都已排进下一轮迭代计划 [plans/cli-experience-iteration.md](plans/cli-experience-iteration.md)。
+
+- **版面模型仍每文件加载**:`--layout`(及 `--formula-model`/`--transcribe-model` 内部用到的版面检测)的 ONNX 模型目前仍每文件从路径加载——这与服务端(MCP/REST)行为一致,需改 `docparse-ocr` 的 `enhance_document`/`enhance_formulas`/`transcribe_pages` 接受预载 `LayoutModel` 才能复用,属更大的跨 crate 改动,暂未做(计划 I1)。OCR 与 UniRec 模型已整批只载一次。
+- **递归不跟随符号链接环会爆栈**:`-r` 目前用 `is_dir()` 判递归,会跟随符号链接;符号链接环属病态输入,会无限递归(计划 I2,一行可修)。
 - **同子目录同名仍覆盖**:递归已按相对路径镜像,但**同一**子目录下同名文件(或跨多个输入根的相同相对路径)仍会覆盖——这与源端本就重名一致。
+- **报告人读表格显示裸文件名**:递归批量里不同子目录的同名文件,表格行看着一样(JSON/CSV 报告带全路径,无歧义;计划 I5 拟显示相对路径)。
+- **顺序处理**:暂无文件级并行(计划 I7 `--jobs`,受内存闸约束需先 spike)。

@@ -67,3 +67,16 @@
 **② 递归落盘镜像**:`collect_files` 返回 `Vec<BatchInput>{path, rel}`——`rel` 是文件相对输入文件夹的路径(顶层/显式文件取裸文件名)。`write_output` 落 `--out-dir/<rel>.<后缀>` 并建父目录。实测 `alpha/paper.pdf` + `beta/paper.pdf`(同名异目录)→ `out/alpha/paper.pdf.md` + `out/beta/paper.pdf.md`,**不再互覆**。同一子目录同名仍覆盖(与源端本就重名一致)。
 
 新单测:`collect_files` 验 `rel` 镜像(顶层裸名、递归带子路径、显式文件裸名)。单文件 `-f json` 逐字节不变(`shasum` 同前)、`--ocr` 逐字不变;全工作区 34 套件 + clippy 零 warning。
+
+## Review 验收(收尾)
+
+对两个 commit(进度可视化 + 批量,含模型复用收口)做对抗式 review,结论:**代码扎实**。逐项核对:
+- **除零**:每文件与总计的 `pages/s`/`MB/s`、`Reporter::finish` 全用 `.max(1e-6)` 守。
+- **落盘路径无逃逸**:`write_output` 的 `rel` 必来自 `strip_prefix(base)`(相对、无 `..`)或显式文件 `file_name()`;`dir.join(rel)` 不越界。
+- **并发**:`apply_with` 回调闭包捕获 `ProgressBar`(内部 `Arc`,`Sync`),多 worker `inc(1)` 原子安全;确定性单测守"并行==串行"。
+- **不变量**:单文件逐字节不变(`shasum` 同前);惰性 `RunModels` 守"数字 `--ocr` 零模型"。
+- **分层**:`core` 仍不引 indicatif(回调是 trait object)。
+
+**暴露一处真硬伤(已记入下轮计划 I2)**:`collect_dir` 用 `path.is_dir()` 判递归,**跟随符号链接**——`-r` 遇符号链接环会无限递归爆栈(病态输入,Low,违"不 panic"红线)。一行可修(`!path.is_symlink()`),排进 [plans/cli-experience-iteration.md](../plans/cli-experience-iteration.md) M1。另:递归同名文件在人读表格里显示相同裸名(JSON/CSV 报告带全 path 无歧义),记 I5。
+
+**下轮迭代计划**:[plans/cli-experience-iteration.md](../plans/cli-experience-iteration.md)——M1 版面模型复用(Phase 9 模型复用真正收尾,顺带修服务端每请求重载)+ 符号链接/路径硬化;M2 `--progress=json` + 报告显相对路径;M3 文件级并行(需 spike);M4 基础解析页内进度(触 trait,候)。
