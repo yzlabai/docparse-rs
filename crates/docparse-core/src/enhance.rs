@@ -23,6 +23,27 @@ use serde::{Deserialize, Serialize};
 // TODO: make this adaptive to available memory instead of a fixed cap.
 const MAX_PAGE_PARALLELISM: usize = 8;
 
+/// Shared, bounded worker pool for page-parallel enhancement — built once and
+/// reused so concurrent callers (e.g. the REST/MCP server handling parallel
+/// requests, each via `spawn_blocking`) share `MAX_PAGE_PARALLELISM` workers
+/// rather than each spawning its own pool (8×N thread blow-up + per-call build
+/// churn). Returns `None` if the OS refuses the threads, in which case `apply`
+/// degrades to serial instead of panicking.
+fn ocr_pool() -> Option<&'static rayon::ThreadPool> {
+    static POOL: std::sync::OnceLock<Option<rayon::ThreadPool>> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        let threads = std::thread::available_parallelism()
+            .map(|c| c.get())
+            .unwrap_or(1)
+            .clamp(1, MAX_PAGE_PARALLELISM);
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .ok()
+    })
+    .as_ref()
+}
+
 /// What an enhancer can do, versioned for reproducibility/observability.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Capability {
@@ -133,21 +154,17 @@ pub fn apply(doc: &Document, enhancers: &[&dyn Enhancer]) -> (Document, Vec<Page
         (replaced.unwrap_or_else(|| page.clone()), Some(route))
     };
 
-    // Parallelize across pages (CPU-bound, independent) through a bounded pool
-    // so peak scan-buffer memory stays capped. An indexed `par_iter().collect()`
-    // preserves page order, keeping output byte-identical to the serial path.
-    let threads = std::thread::available_parallelism()
-        .map(|c| c.get())
-        .unwrap_or(1)
-        .clamp(1, MAX_PAGE_PARALLELISM);
-    let results: Vec<(Page, Option<PageRoute>)> = if threads <= 1 || doc.pages.len() <= 1 {
-        doc.pages.iter().map(&process).collect()
-    } else {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .build()
-            .expect("rayon pool");
-        pool.install(|| doc.pages.par_iter().map(&process).collect())
+    // Parallelize across pages (CPU-bound, independent) through the shared
+    // bounded pool so peak scan-buffer memory stays capped and concurrent
+    // callers (REST/MCP server) share workers instead of each spawning a pool.
+    // An indexed `par_iter().collect()` preserves page order, keeping output
+    // byte-identical to the serial path. Single-page docs, or a pool the OS
+    // refused to build, run serially — never panic on a resource shortage.
+    let results: Vec<(Page, Option<PageRoute>)> = match ocr_pool() {
+        Some(pool) if doc.pages.len() > 1 => {
+            pool.install(|| doc.pages.par_iter().map(&process).collect())
+        }
+        _ => doc.pages.iter().map(&process).collect(),
     };
 
     // Split results into pages + report. Each page was cloned at most once (in
