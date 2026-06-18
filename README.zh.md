@@ -20,6 +20,12 @@
 
 docparse-rs 把 **PDF · DOCX · HTML · XLSX · PPTX · Markdown · CSV · SRT/VTT · LaTeX · EML · PNG/JPEG · AsciiDoc** 解析为统一中间表示（IR），再输出 **JSON / Markdown / Text / RAG 切块**。它走"结构提取"快路径——解析 PDF 内容流拿坐标，而非把页面渲染成像素——所以暖解析 **<10ms（~700 页/s）**，同输入逐字节确定。单个 ~29 MB 二进制，无 JVM / C++ / Python，零运行时依赖。
 
+## 🎬 演示
+
+<video src="https://github.com/yzlabai/docparse-rs/raw/main/docs/assets/fastdemo.mp4" controls width="100%"></video>
+
+> ▶️ 播放器若不加载，[观看 / 下载 `fastdemo.mp4`](docs/assets/fastdemo.mp4)。
+
 ## ✨ 特性
 
 - 🦀 **单个纯 Rust 二进制** —— ~29 MB，零运行时依赖，暖解析 <10ms（~700 页/s）

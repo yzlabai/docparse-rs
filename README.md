@@ -20,6 +20,12 @@ English | [中文](README.zh.md)
 
 docparse-rs turns **PDF · DOCX · HTML · XLSX · PPTX · Markdown · CSV · SRT/VTT · LaTeX · EML · PNG/JPEG · AsciiDoc** into a unified intermediate representation, then emits **JSON / Markdown / Text / RAG chunks**. It takes the *structure-extraction* fast path — interpreting PDF content streams for coordinates instead of rendering pages to pixels — so a warm parse is **<10 ms (~700 pages/s)** and output is **byte-identical** for identical input. One ~29 MB binary, no JVM / C++ / Python, zero runtime dependencies.
 
+## 🎬 Demo
+
+<video src="https://github.com/yzlabai/docparse-rs/raw/main/docs/assets/fastdemo.mp4" controls width="100%"></video>
+
+> ▶️ If the inline player doesn't load, [watch / download `fastdemo.mp4`](docs/assets/fastdemo.mp4).
+
 ## ✨ Features
 
 - 🦀 **One pure-Rust binary** — ~29 MB, zero runtime deps, <10 ms warm parse (~700 pages/s)
