@@ -34,7 +34,11 @@ struct BatchInput {
 
 /// One file's outcome in the report.
 struct FileStat {
+    /// Full source path (report `path` field).
     path: PathBuf,
+    /// Path relative to the input folder — the report/table label and what was
+    /// written under `--out-dir`. Disambiguates same-named files across sub-dirs.
+    rel: PathBuf,
     bytes: u64,
     pages: usize,
     secs: f64,
@@ -42,11 +46,8 @@ struct FileStat {
 }
 
 impl FileStat {
-    fn name(&self) -> String {
-        self.path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| self.path.display().to_string())
+    fn label(&self) -> String {
+        self.rel.to_string_lossy().into_owned()
     }
 }
 
@@ -83,6 +84,7 @@ pub fn run(cli: &Cli, reporter: &Reporter) -> anyhow::Result<()> {
         let stat = match parse_and_enhance(&inp.path, cli, &models, None) {
             Ok(doc) => FileStat {
                 path: inp.path.clone(),
+                rel: inp.rel.clone(),
                 bytes,
                 pages: doc.pages.len(),
                 secs: t.elapsed().as_secs_f64(),
@@ -92,6 +94,7 @@ pub fn run(cli: &Cli, reporter: &Reporter) -> anyhow::Result<()> {
             },
             Err(e) => FileStat {
                 path: inp.path.clone(),
+                rel: inp.rel.clone(),
                 bytes,
                 pages: 0,
                 secs: t.elapsed().as_secs_f64(),
@@ -132,12 +135,36 @@ fn write_output(cli: &Cli, rel: &Path, doc: &docparse_core::ir::Document) -> any
         return Ok(());
     };
     let rendered = render_doc(doc, cli)?;
+    let rel = safe_rel(rel);
     let target = dir.join(format!("{}.{}", rel.display(), output_ext(cli.format)));
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(target, rendered)?;
     Ok(())
+}
+
+/// Keep an output sub-path inside `--out-dir`. `rel` is built from a relative
+/// `strip_prefix` or a bare file name, so this is belt-and-suspenders: reject
+/// anything absolute or containing `..`, falling back to the bare file name (or
+/// `out` if even that is absent). Prevents a pathological input from escaping
+/// the output directory via `dir.join(rel)`.
+fn safe_rel(rel: &Path) -> PathBuf {
+    use std::path::Component;
+    let safe = rel.is_relative()
+        && rel.components().all(|c| {
+            !matches!(
+                c,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        });
+    if safe {
+        rel.to_path_buf()
+    } else {
+        rel.file_name()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("out"))
+    }
 }
 
 /// File extension for a rendered output (chunks are JSON too).
@@ -243,7 +270,7 @@ fn render_table(stats: &[FileStat], total_secs: f64) -> String {
     // Width on char count (good enough; CJK double-width names may still drift).
     let name_w = stats
         .iter()
-        .map(|f| f.name().chars().count())
+        .map(|f| f.label().chars().count())
         .max()
         .unwrap_or(4)
         .clamp(4, 50);
@@ -267,7 +294,7 @@ fn render_table(stats: &[FileStat], total_secs: f64) -> String {
         };
         s.push_str(&format!(
             "{:<name_w$}  {:>5}  {:>7.2}  {:>6.2}s  {:>9}  {}\n",
-            truncate(&f.name(), name_w),
+            truncate(&f.label(), name_w),
             pages,
             f.bytes as f64 / MB,
             f.secs,
@@ -303,7 +330,7 @@ fn render_json(stats: &[FileStat], total_secs: f64) -> String {
         .iter()
         .map(|f| {
             let mut o = serde_json::json!({
-                "file": f.name(),
+                "file": f.label(),
                 "path": f.path.display().to_string(),
                 "bytes": f.bytes,
                 "pages": f.pages,
@@ -339,7 +366,7 @@ fn render_csv(stats: &[FileStat]) -> String {
     for f in stats {
         s.push_str(&format!(
             "{},{},{},{},{:.3},{},{}\n",
-            csv_field(&f.name()),
+            csv_field(&f.label()),
             csv_field(&f.path.display().to_string()),
             f.bytes,
             f.pages,
@@ -373,6 +400,7 @@ mod tests {
     fn stat(name: &str, pages: usize, bytes: u64, error: Option<&str>) -> FileStat {
         FileStat {
             path: PathBuf::from(name),
+            rel: PathBuf::from(name),
             bytes,
             pages,
             secs: 0.1,
@@ -387,6 +415,26 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn safe_rel_blocks_escape() {
+        // Normal relative paths pass through unchanged.
+        assert_eq!(safe_rel(Path::new("a.pdf")), PathBuf::from("a.pdf"));
+        assert_eq!(safe_rel(Path::new("sub/a.pdf")), PathBuf::from("sub/a.pdf"));
+        // Absolute or `..`-bearing paths fall back to the bare file name.
+        assert_eq!(safe_rel(Path::new("/etc/passwd")), PathBuf::from("passwd"));
+        assert_eq!(safe_rel(Path::new("../../x.pdf")), PathBuf::from("x.pdf"));
+        assert_eq!(safe_rel(Path::new("a/../../b.pdf")), PathBuf::from("b.pdf"));
+    }
+
+    #[test]
+    fn label_uses_relative_path() {
+        // The report label is the relative path (disambiguates recursive dups),
+        // not the bare file name.
+        let mut s = stat("paper.pdf", 1, 10, None);
+        s.rel = PathBuf::from("alpha/paper.pdf");
+        assert_eq!(s.label(), "alpha/paper.pdf");
     }
 
     #[test]

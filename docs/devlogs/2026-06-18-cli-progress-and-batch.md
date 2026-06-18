@@ -90,3 +90,15 @@
 - **服务端**:`EnhanceState` 加 `layout: OnceLock<Arc<LayoutModel>>` + `loaded_layout()`,layout/formula 走缓存——**服务从此每服务只载一次版面模型**(原每请求白重载,本项免费修掉)。`Arc<LayoutModel>` 跨并发请求共享编译通过 = `LayoutModel` 实证 `Send+Sync`。
 
 验收:全工作区 34 套件 + clippy 零 warning + 改动 crate fmt 净;`--layout` 单文件(`layout_enhanced_pages:1`)+ 2 文件批量实测产出正常、模型复用;单文件 `-f json`/`--ocr` 逐字不变。**至此 OCR/UniRec/版面三类模型都整批(或整服务)只载一次,Phase 9 模型复用彻底收尾**。M1 余 I3(落盘路径硬化,小)。
+
+## 续:I3 落盘路径硬化 + I5 报告显相对路径(M1 收官 + M2 起步)
+
+边开发边自查,顺手收两小项。
+
+**I3 落盘路径硬化**:`write_output` 的 `rel` 实测无逃逸(必来自 `strip_prefix` 或 `file_name`),但 `file_name()` 病态回退理论上能拼出绝对/越界路径(`dir.join("/x")` 在 unix 替换 `dir`)。加 `safe_rel(rel)`:校验"相对 + 无 `ParentDir`/`RootDir`/`Prefix` 组件",否则退化为裸 `file_name()`(再不行 `"out"`),落盘前过一道。belt-and-suspenders,正常输出零变化。单测 `safe_rel_blocks_escape` 覆盖 `/etc/passwd`、`../../x`、`a/../../b` → 都收敛到裸名。
+
+**I5 报告显相对路径**:递归批量里 `alpha/paper.pdf`、`beta/paper.pdf` 在表格里都显示 `paper.pdf`,看着一样。`FileStat` 加 `rel`,`name()`→`label()` 返回相对路径;人读表格 + JSON `file` + CSV `file` 都用 `rel`(全源路径仍在 `path`)。实测递归批量表格显示 `alpha/paper.pdf`/`beta/paper.pdf` 消歧;顶层/单文件 `rel==裸名`,显示不变。
+
+**review 自查**:`safe_rel` 用 `Component` 模式匹配(`Prefix(_)` 是元组变体,初版漏了 `(_)` 编译失败,已修)——拒绝绝对与 `..`,`CurDir`(`.`)无害放行;`label()` 用 `to_string_lossy` 不 panic;`rel` 全程相对,`dir.join` 不越界。全工作区 34 套件 + clippy 零 warning;cli 24 单测(加 `safe_rel_blocks_escape`/`label_uses_relative_path`)。
+
+**进度**:**M1 全完成**(I1 版面复用 + I2 符号链接 + I3 路径硬化);M2 I5 已落,余 I4(`--progress=json`)、I6(报告小料);M3 I7(文件级并行,需 spike)。见 [plans/cli-experience-iteration.md](../plans/cli-experience-iteration.md)。
