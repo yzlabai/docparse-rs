@@ -102,3 +102,14 @@
 **review 自查**:`safe_rel` 用 `Component` 模式匹配(`Prefix(_)` 是元组变体,初版漏了 `(_)` 编译失败,已修)——拒绝绝对与 `..`,`CurDir`(`.`)无害放行;`label()` 用 `to_string_lossy` 不 panic;`rel` 全程相对,`dir.join` 不越界。全工作区 34 套件 + clippy 零 warning;cli 24 单测(加 `safe_rel_blocks_escape`/`label_uses_relative_path`)。
 
 **进度**:**M1 全完成**(I1 版面复用 + I2 符号链接 + I3 路径硬化);M2 I5 已落,余 I4(`--progress=json`)、I6(报告小料);M3 I7(文件级并行,需 spike)。见 [plans/cli-experience-iteration.md](../plans/cli-experience-iteration.md)。
+
+## 续:I4 `--progress=json` 机器可读事件流(M2 主体完成)
+
+给 CI / 上层封装一个可解析的进度通道。
+
+- `ProgressMode` 加 `Json` 变体(`--progress json`)。`Reporter` 把单一 `enabled` 拆成 `human`/`json` 两开关——**互斥**:json 模式人读 UI 全关(无 spinner/bar/ANSI),只发事件。加 `json()` + `emit(&serde_json::Value)`(`Value` 的 `Display` 即紧凑单行 JSON)。`--quiet` 连 json 一并静默。
+- **事件**(stderr,JSON-lines):单文件 `finish()` 发一条 `{"event":"summary","scope":"file",...pages/bytes/seconds/pages_per_sec/mb_per_sec}`;批量每文件完成**流式**发 `{"event":"file",...}`(schema 复用 `file_value()`,与 `--report-json` 每文件对象一致)+ 收尾 `{"event":"summary","scope":"batch",...}`(`totals_value()`)。把 `render_json` 重构成调这两个 helper,保证报告与流式 schema 同源。
+
+**review 自查**:json 与 human 互斥(`finish()` 两分支独立判 `self.human`/`self.json`);batch 的 `files_bar`/spinner 在 json 模式返回 None(走 `human`),无 ANSI 漏出;stdout 不受影响——`-f json --progress=json > out.json` 实测 `out.json` 零事件(`grep -c event`=0);每条事件经 python `json.loads` 验证合法。`emit` 仅在 `self.json` 时写,human/auto/never 模式零开销。
+
+验收:cli 25 单测(加 `json_mode_is_machine_not_human`)+ 全工作区 34 套件 + clippy 零 warning;实测单文件 summary、批量 file×N+summary 流式输出、stdout 纯净。**M2 主体完成**(余 I6 报告小料);M3 I7 文件级并行需 spike。

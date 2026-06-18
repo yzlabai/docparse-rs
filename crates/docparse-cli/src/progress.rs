@@ -29,11 +29,17 @@ pub enum ProgressMode {
     Always,
     /// Never show.
     Never,
+    /// Emit machine-readable JSON-lines events to stderr instead of the human
+    /// spinner/bar/table — for CI and wrapper tooling. No ANSI, no progress bar.
+    Json,
 }
 
-/// Owns the run clock, the per-phase timing log, and the on/off decision.
+/// Owns the run clock, the per-phase timing log, and the output decision. Human
+/// progress (`human`) and JSON events (`json`) are mutually exclusive: `--progress
+/// json` turns the human UI off and the event stream on.
 pub struct Reporter {
-    enabled: bool,
+    human: bool,
+    json: bool,
     started: Instant,
     phases: RefCell<Vec<(&'static str, Duration)>>,
 }
@@ -42,29 +48,44 @@ impl Reporter {
     /// Resolve `auto` against the real terminal and build the reporter. The run
     /// clock starts here, so construct it right after arg parsing.
     pub fn new(mode: ProgressMode, quiet: bool) -> Self {
-        let enabled = !quiet
+        let human = !quiet
             && match mode {
                 ProgressMode::Always => true,
-                ProgressMode::Never => false,
+                ProgressMode::Never | ProgressMode::Json => false,
                 ProgressMode::Auto => std::io::stderr().is_terminal(),
             };
+        let json = !quiet && mode == ProgressMode::Json;
         Reporter {
-            enabled,
+            human,
+            json,
             started: Instant::now(),
             phases: RefCell::new(Vec::new()),
         }
     }
 
-    /// Whether progress is on (TTY-resolved). Batch mode uses this to decide
-    /// whether to print the human-readable report table to stderr.
+    /// Whether the human UI (spinner/bar/table) is on. Batch mode uses this to
+    /// decide whether to print the human-readable report table to stderr.
     pub fn enabled(&self) -> bool {
-        self.enabled
+        self.human
+    }
+
+    /// Whether machine-readable JSON-lines events are on (`--progress json`).
+    pub fn json(&self) -> bool {
+        self.json
+    }
+
+    /// Emit one JSON-lines event to stderr — only in `--progress json` mode.
+    /// `serde_json::Value`'s `Display` is compact single-line JSON.
+    pub fn emit(&self, event: &serde_json::Value) {
+        if self.json {
+            eprintln!("{event}");
+        }
     }
 
     /// Determinate bar over a batch of files (top-level progress for folder /
     /// multi-input runs). Like [`page_bar`](Self::page_bar) but counts files.
     pub fn files_bar(&self, total: u64) -> Option<ProgressBar> {
-        self.enabled.then(|| {
+        self.human.then(|| {
             let pb = ProgressBar::new(total);
             pb.set_style(
                 ProgressStyle::with_template(
@@ -84,7 +105,7 @@ impl Reporter {
     /// the spinner on drop, so scope it tightly around the heavy call and emit
     /// any post-phase stderr line *after* the guard drops.
     pub fn spinner(&self, name: &'static str) -> PhaseGuard<'_> {
-        let bar = self.enabled.then(|| {
+        let bar = self.human.then(|| {
             let pb = ProgressBar::new_spinner();
             pb.set_style(
                 ProgressStyle::with_template("{spinner:.cyan} {msg} {elapsed}")
@@ -112,7 +133,7 @@ impl Reporter {
         name: &'static str,
         total: u64,
     ) -> (Option<ProgressBar>, PhaseGuard<'_>) {
-        let bar = self.enabled.then(|| {
+        let bar = self.human.then(|| {
             let pb = ProgressBar::new(total);
             pb.set_style(
                 ProgressStyle::with_template(
@@ -134,26 +155,41 @@ impl Reporter {
         (bar, guard)
     }
 
-    /// Print the end-of-run speed summary to stderr. No-op when disabled. Call
-    /// after every phase guard has dropped (no bar is drawing).
+    /// End-of-run speed summary to stderr (single-file path). Human mode prints
+    /// the `✓ …` line (+ phase breakdown); JSON mode emits one `summary` event.
+    /// No-op when both are off. Call after every phase guard has dropped.
     pub fn finish(&self, label: &str, pages: usize, bytes: u64) {
-        if !self.enabled {
+        if !self.human && !self.json {
             return;
         }
         let secs = self.started.elapsed().as_secs_f64().max(1e-6);
         let mb = bytes as f64 / 1_048_576.0;
-        eprintln!(
-            "✓ {label} · {pages} pages · {mb:.2} MB · {secs:.2}s · {:.1} pages/s · {:.1} MB/s",
-            pages as f64 / secs,
-            mb / secs,
-        );
-        let phases = self.phases.borrow();
-        if phases.len() > 1 {
-            let parts: Vec<String> = phases
-                .iter()
-                .map(|(n, d)| format!("{n} {:.2}s", d.as_secs_f64()))
-                .collect();
-            eprintln!("  {}", parts.join(" · "));
+        if self.human {
+            eprintln!(
+                "✓ {label} · {pages} pages · {mb:.2} MB · {secs:.2}s · {:.1} pages/s · {:.1} MB/s",
+                pages as f64 / secs,
+                mb / secs,
+            );
+            let phases = self.phases.borrow();
+            if phases.len() > 1 {
+                let parts: Vec<String> = phases
+                    .iter()
+                    .map(|(n, d)| format!("{n} {:.2}s", d.as_secs_f64()))
+                    .collect();
+                eprintln!("  {}", parts.join(" · "));
+            }
+        }
+        if self.json {
+            self.emit(&serde_json::json!({
+                "event": "summary",
+                "scope": "file",
+                "file": label,
+                "pages": pages,
+                "bytes": bytes,
+                "seconds": (secs * 1000.0).round() / 1000.0,
+                "pages_per_sec": (pages as f64 / secs * 10.0).round() / 10.0,
+                "mb_per_sec": (mb / secs * 10.0).round() / 10.0,
+            }));
         }
     }
 }
@@ -202,5 +238,18 @@ mod tests {
         assert!(r.files_bar(10).is_none());
         let (bar, _g) = r.page_bar("ocr", 5);
         assert!(bar.is_none());
+    }
+
+    #[test]
+    fn json_mode_is_machine_not_human() {
+        // `--progress json`: events on, human UI off (no bars/ANSI).
+        let r = Reporter::new(ProgressMode::Json, false);
+        assert!(r.json());
+        assert!(!r.enabled(), "json mode turns the human UI off");
+        assert!(r.files_bar(3).is_none(), "no bar in json mode");
+        // --quiet silences even json.
+        let q = Reporter::new(ProgressMode::Json, true);
+        assert!(!q.json());
+        assert!(!q.enabled());
     }
 }

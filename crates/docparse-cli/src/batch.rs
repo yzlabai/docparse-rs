@@ -101,6 +101,12 @@ pub fn run(cli: &Cli, reporter: &Reporter) -> anyhow::Result<()> {
                 error: Some(short_err(&e)),
             },
         };
+        // Stream a per-file event as each file completes (--progress json).
+        if reporter.json() {
+            let mut ev = file_value(&stat);
+            ev["event"] = serde_json::Value::String("file".into());
+            reporter.emit(&ev);
+        }
         stats.push(stat);
         if let Some(b) = &bar {
             b.inc(1);
@@ -115,6 +121,13 @@ pub fn run(cli: &Cli, reporter: &Reporter) -> anyhow::Result<()> {
     // Human table → stderr (gated on progress on/off so --quiet stays quiet).
     if reporter.enabled() {
         eprint!("{}", render_table(&stats, total_secs));
+    }
+    // Machine-readable batch summary event (--progress json).
+    if reporter.json() {
+        let mut ev = totals_value(&totals(&stats), total_secs);
+        ev["event"] = serde_json::Value::String("summary".into());
+        ev["scope"] = serde_json::Value::String("batch".into());
+        reporter.emit(&ev);
     }
     if let Some(p) = &cli.report_json {
         std::fs::write(p, render_json(&stats, total_secs))?;
@@ -325,36 +338,41 @@ fn truncate(s: &str, max: usize) -> String {
     format!("{keep}…")
 }
 
+/// One file's JSON object — shared by the `--report-json` file and the
+/// `--progress json` `file` event so both carry an identical schema.
+fn file_value(f: &FileStat) -> serde_json::Value {
+    let mut o = serde_json::json!({
+        "file": f.label(),
+        "path": f.path.display().to_string(),
+        "bytes": f.bytes,
+        "pages": f.pages,
+        "seconds": round3(f.secs),
+        "ok": f.error.is_none(),
+    });
+    if let Some(e) = &f.error {
+        o["error"] = serde_json::Value::String(e.clone());
+    }
+    o
+}
+
+/// Batch totals as a JSON object — shared by the report and the `summary` event.
+fn totals_value(t: &Totals, total_secs: f64) -> serde_json::Value {
+    serde_json::json!({
+        "files": t.files,
+        "ok": t.ok,
+        "failed": t.failed,
+        "pages": t.pages,
+        "bytes": t.bytes,
+        "seconds": round3(total_secs),
+        "pages_per_sec": round1(t.pages as f64 / total_secs.max(1e-6)),
+    })
+}
+
 fn render_json(stats: &[FileStat], total_secs: f64) -> String {
-    let files: Vec<serde_json::Value> = stats
-        .iter()
-        .map(|f| {
-            let mut o = serde_json::json!({
-                "file": f.label(),
-                "path": f.path.display().to_string(),
-                "bytes": f.bytes,
-                "pages": f.pages,
-                "seconds": round3(f.secs),
-                "ok": f.error.is_none(),
-            });
-            if let Some(e) = &f.error {
-                o["error"] = serde_json::Value::String(e.clone());
-            }
-            o
-        })
-        .collect();
-    let t = totals(stats);
+    let files: Vec<serde_json::Value> = stats.iter().map(file_value).collect();
     let report = serde_json::json!({
         "files": files,
-        "totals": {
-            "files": t.files,
-            "ok": t.ok,
-            "failed": t.failed,
-            "pages": t.pages,
-            "bytes": t.bytes,
-            "seconds": round3(total_secs),
-            "pages_per_sec": round1(t.pages as f64 / total_secs.max(1e-6)),
-        }
+        "totals": totals_value(&totals(stats), total_secs),
     });
     let mut out = serde_json::to_string_pretty(&report).unwrap_or_default();
     out.push('\n');

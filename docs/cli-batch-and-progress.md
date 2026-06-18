@@ -29,7 +29,26 @@ docparse scan.pdf --ocr -f text -o out.txt
 | `--progress auto` | **默认**。仅交互终端显示;管道/重定向/CI 自动关 |
 | `--progress always` | 强制显示,即使输出被重定向(进度仍只走 stderr) |
 | `--progress never` | 完全关闭 |
-| `--quiet` | 同 `--progress never` |
+| `--progress json` | 机器可读 JSON-lines 事件到 stderr(无进度条/ANSI),供 CI/封装解析 |
+| `--quiet` | 同 `--progress never`(连 json 也静默) |
+
+### 机器可读事件(`--progress json`)
+
+stderr 输出 JSON-lines(每行一个事件,stdout 仍是纯数据):
+
+```bash
+# 单文件:一条 summary 事件
+docparse paper.pdf -f json --progress=json > out.json
+#   stderr: {"event":"summary","scope":"file","file":"paper.pdf","pages":15,"bytes":...,"seconds":0.05,"pages_per_sec":292.4,"mb_per_sec":28.6}
+
+# 批量:每文件完成即流式发 file 事件 + 收尾 summary
+docparse ./papers -r --out-dir ./out --progress=json
+#   {"event":"file","file":"alpha/paper.pdf","path":"...","bytes":...,"pages":15,"seconds":0.04,"ok":true}
+#   {"event":"file","file":"beta/paper.pdf",...,"ok":true}
+#   {"event":"summary","scope":"batch","files":2,"ok":2,"failed":0,"pages":29,"bytes":...,"seconds":0.15,"pages_per_sec":198.0}
+```
+
+`file` 事件 schema 与 `--report-json` 的每文件对象一致(失败文件带 `"error"` 字段、`"ok":false`)。
 
 **速度指标**:页数、体积(MB)、墙钟(s)、吞吐(页·s⁻¹ 与 MB·s⁻¹)。各相位(parse / ocr / layout / table / formula / transcribe / vlm)单独计时。
 

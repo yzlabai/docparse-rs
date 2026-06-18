@@ -184,9 +184,10 @@ struct Cli {
     image_dir: Option<PathBuf>,
 
     /// Progress & speed visualization on stderr: auto (interactive TTY only,
-    /// the default), always (force, even when piped), never (off). Shows a
-    /// per-phase spinner / page bar and an end-of-run pages/s · MB/s summary.
-    /// Never touches stdout, so `-f json > out.json` stays clean.
+    /// the default), always (force, even when piped), never (off), json
+    /// (machine-readable JSON-lines events for CI/wrappers — no bar/ANSI).
+    /// Shows a per-phase spinner / page bar and an end-of-run pages/s · MB/s
+    /// summary. Never touches stdout, so `-f json > out.json` stays clean.
     #[arg(long, value_enum, default_value_t = progress::ProgressMode::Auto)]
     progress: progress::ProgressMode,
 
