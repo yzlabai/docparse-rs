@@ -190,7 +190,10 @@ fn collect_dir(
         .collect();
     entries.sort();
     for path in entries {
-        if path.is_dir() {
+        // `is_dir()` follows symlinks, so a symlinked directory (or a cycle like
+        // `a/link -> a`) would recurse forever and blow the stack. Don't follow
+        // symlinked dirs — the safe default; a real dir tree still walks fully.
+        if path.is_dir() && !path.is_symlink() {
             if recursive {
                 collect_dir(&path, base, recursive, supported, out)?;
             }
@@ -493,6 +496,22 @@ mod tests {
 
         // Missing input is an error, not a silent skip.
         assert!(collect_files(&[root.join("ghost.pdf")], false).is_err());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recursive_does_not_follow_symlink_cycles() {
+        let root = scratch("symlink");
+        std::fs::write(root.join("real.pdf"), b"x").unwrap();
+        // A cycle: root/loop -> root. Following it would recurse forever.
+        std::os::unix::fs::symlink(&root, root.join("loop")).unwrap();
+
+        // Terminates (no stack overflow) and doesn't re-collect via the link.
+        let files = collect_files(std::slice::from_ref(&root), true).unwrap();
+        assert_eq!(files.len(), 1, "real file once, symlinked dir not followed");
+        assert!(files[0].path.ends_with("real.pdf"));
 
         let _ = std::fs::remove_dir_all(&root);
     }
