@@ -72,6 +72,9 @@ pulldown-cmark = { version = "0.12", default-features = false }
 # used, draws to stderr so stdout data output stays clean; thread-safe bar so the
 # page-parallel OCR loop can increment it from rayon workers.
 indicatif = "0.17"
+# `--stats`: peak RSS + CPU time via getrusage. Already in the tree transitively
+# (tract/tokio/…), so a direct dep adds zero new supply-chain surface.
+libc = "0.2"
 
 [profile.release]
 lto = "thin"

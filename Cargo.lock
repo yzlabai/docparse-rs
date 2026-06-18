@@ -686,6 +686,7 @@ dependencies = [
  "docparse-vlm",
  "docparse-xlsx",
  "indicatif",
+ "libc",
  "serde_json",
  "tokio",
 ]

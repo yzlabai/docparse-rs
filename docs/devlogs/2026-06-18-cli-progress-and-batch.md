@@ -113,3 +113,15 @@
 **review 自查**:json 与 human 互斥(`finish()` 两分支独立判 `self.human`/`self.json`);batch 的 `files_bar`/spinner 在 json 模式返回 None(走 `human`),无 ANSI 漏出;stdout 不受影响——`-f json --progress=json > out.json` 实测 `out.json` 零事件(`grep -c event`=0);每条事件经 python `json.loads` 验证合法。`emit` 仅在 `self.json` 时写,human/auto/never 模式零开销。
 
 验收:cli 25 单测(加 `json_mode_is_machine_not_human`)+ 全工作区 34 套件 + clippy 零 warning;实测单文件 summary、批量 file×N+summary 流式输出、stdout 纯净。**M2 主体完成**(余 I6 报告小料);M3 I7 文件级并行需 spike。
+
+## 续:--stats CPU/内存用量(I10,新需求)
+
+用户加需求:解析时带个参数看 CPU/内存。新增 [resources.rs](../../crates/docparse-cli/src/resources.rs) + `--stats`。
+
+- **取数**:`getrusage(RUSAGE_SELF)` —— peak RSS(`ru_maxrss`,macOS=字节/Linux=KB,`cfg!(target_os)` 折算)+ CPU 时间(user/sys timeval → 秒)。**util% = CPU/wall**,>100% 即多核并行的直接证据。`#[cfg(unix)]`,其它平台标 unavailable。
+- **依赖**:`libc`——查 Cargo.lock 确认 **0.2.186 本就在依赖树**(tract/tokio 等传递依赖),直接化 = 零新供应链面(同 hayro-ccitt/jbig2 先例),不必引 sysinfo。
+- **形态**:`--stats` 是显式开关,无论 `--progress` 都打印(同 `--quality`/`--profile`);**但 `--progress json` 下改发 `{"event":"resources",...}`**(human 行会污染 json 流,故分流)。单文件 + 批量(报告后)都接;`run_start` 时钟覆盖 parse+全部相位+输出写。
+
+**review 自查**:`getrusage` 用 `unsafe` 但只读 zero-init 的 C 结构、检查返回码非 0 退化为 unavailable;`ru_maxrss.max(0) as u64` 防负;util/mb 用 `wall.max(1e-6)` 防除零;`--stats` 与 stdout 无关(纯 stderr/event),`-f json --stats --progress=json >out.json` 实测 stdout 零 event;非 json 模式 `emit` 不触发,human 行照打。**实测**单文件 338% util(15 页并行)、批量 517%、peak RSS ~50MB,json 模式 `resources` 事件合法、stdout 纯净。
+
+cli 25 单测 + 全工作区 34 套件 + clippy 零 warning。归入计划 I10(M2)。

@@ -3,6 +3,7 @@
 mod batch;
 mod mcp;
 mod progress;
+mod resources;
 mod server;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -194,6 +195,12 @@ struct Cli {
     /// Silence progress visualization (alias for --progress never).
     #[arg(long)]
     quiet: bool,
+
+    /// Print CPU & peak-memory usage for the run to stderr at the end: peak RSS,
+    /// CPU time (user+sys), and average utilization (>100% = multi-core work).
+    /// Under --progress json it's emitted as a "resources" event instead.
+    #[arg(long)]
+    stats: bool,
 
     /// Batch output directory: write one result file per input as
     /// <out-dir>/<stem>.<format-ext> (json/md/txt). Required to keep parsed
@@ -754,14 +761,19 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Speed visualization (stderr-only, TTY-gated). The clock starts now so the
-    // end-of-run summary covers parse + every enhancement phase.
+    // end-of-run summary (and --stats wall time) covers parse + every phase.
+    let run_start = std::time::Instant::now();
     let reporter = progress::Reporter::new(cli.progress, cli.quiet);
 
     // Batch when given a folder, several inputs, or an explicit --out-dir;
     // otherwise the classic single-file path (result to stdout or -o).
     let single = cli.inputs.len() == 1 && cli.inputs[0].is_file() && cli.out_dir.is_none();
     if !single {
-        return batch::run(&cli, &reporter);
+        batch::run(&cli, &reporter)?;
+        if cli.stats {
+            resources::report(&reporter, run_start.elapsed());
+        }
+        return Ok(());
     }
 
     let input = &cli.inputs[0];
@@ -806,6 +818,9 @@ fn main() -> anyhow::Result<()> {
     match &cli.out {
         Some(path) => std::fs::write(path, rendered)?,
         None => println!("{rendered}"),
+    }
+    if cli.stats {
+        resources::report(&reporter, run_start.elapsed());
     }
     Ok(())
 }

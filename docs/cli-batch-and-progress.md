@@ -50,6 +50,31 @@ docparse ./papers -r --out-dir ./out --progress=json
 
 `file` 事件 schema 与 `--report-json` 的每文件对象一致(失败文件带 `"error"` 字段、`"ok":false`)。
 
+### CPU / 内存用量(`--stats`)
+
+加 `--stats` 在运行结束时打一行资源用量到 stderr(`getrusage`,零额外依赖——libc 本就在依赖树里):
+
+```bash
+docparse paper.pdf --stats
+#   resources: peak RSS 50.5 MB · CPU 0.44s (user 0.41 + sys 0.03) · 338% util · wall 0.13s
+
+docparse ./papers -r --out-dir ./out --stats
+#   （报告之后）resources: peak RSS 53.8 MB · CPU 0.75s ... · 517% util · wall 0.14s
+```
+
+- **peak RSS**:整个进程的峰值常驻内存。
+- **CPU**:累计 CPU 时间(user+sys,跨所有线程)。
+- **util%**:`CPU / wall` —— **>100% 是正常且期望的**,说明逐页并行/OCR 真的用上了多核。
+
+`--stats` 是显式开关,无论 `--progress` 设成什么都打印(同 `--quality`/`--profile`);**但 `--progress json` 下改为发一条 `resources` 事件**(stdout 仍纯净):
+
+```bash
+docparse paper.pdf -f json --stats --progress=json > out.json
+#   stderr: {"event":"resources","available":true,"peak_rss_bytes":50659328,"cpu_seconds":0.358,"cpu_util_percent":330.9,"wall_seconds":0.108,...}
+```
+
+非 Unix 平台 getrusage 不可用,会打印/标记 unavailable。
+
 **速度指标**:页数、体积(MB)、墙钟(s)、吞吐(页·s⁻¹ 与 MB·s⁻¹)。各相位(parse / ocr / layout / table / formula / transcribe / vlm)单独计时。
 
 **通道保证**:进度全在 stderr。`docparse f.pdf -f json > out.json` 时 `out.json` 不含任何进度字节;管道下默认静默。
