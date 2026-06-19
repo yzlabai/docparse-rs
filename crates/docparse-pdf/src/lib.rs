@@ -13,6 +13,7 @@ mod font;
 mod images;
 mod interpreter;
 mod matrix;
+mod outlines;
 mod stdmetrics;
 mod structure;
 
@@ -101,6 +102,15 @@ impl PdfParser {
         // 2) Interpret content streams in parallel (CPU-bound, no shared state).
         let mut pages: Vec<_> = inputs.par_iter().map(interpret).collect();
         pages.sort_by_key(|p| p.number);
+
+        // Author-declared outline (/Outlines bookmarks): anchor each entry to
+        // its heading text and stamp an H<level> tag, so the structure tree
+        // (docparse_core::outline) follows the author's hierarchy. No-op when
+        // the document has no bookmarks — output stays byte-identical.
+        let bookmarks = outlines::build_bookmarks(&doc);
+        if !bookmarks.is_empty() {
+            outlines::apply_bookmarks(&mut pages, &bookmarks);
+        }
 
         Ok(Document {
             source: "<pdf>".to_string(),

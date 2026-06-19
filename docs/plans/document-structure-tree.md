@@ -1,6 +1,10 @@
 # 文档结构树迭代计划（面向 agentic 检索）
 
-> 状态：**Phase A 主体已落地（2026-06-19）**——T1/T3/T4/T5 完成；**T2 部分**完成（标题层级已含 tagged H1–H6 + 字号档位，经 `Block.level` 进树；**`/Outlines` 书签解析 + StructTree 显式嵌套保留 + source provenance 字段**留作后续）。承接调研 [refer/document-structure-tree-for-agentic-retrieval.md](../refer/document-structure-tree-for-agentic-retrieval.md)。
+> 状态：**Phase A 全部落地（2026-06-19）**——T1/T2/T3/T4/T5 完成。承接调研 [refer/document-structure-tree-for-agentic-retrieval.md](../refer/document-structure-tree-for-agentic-retrieval.md)。
+>
+> **T2 已落地（/Outlines 书签，2026-06-19）**：`pdf/outlines.rs` 读 catalog `/Outlines` 树(`/First`/`/Next`/`/Title` UTF-16BE 解码/`/Dest` 或 `/A`→GoTo `/D`),**命名目标解析**(legacy `/Dests` 字典 + `/Names`→`/Dests` 名树含 `Kids` 递归),把每条书签**锚定**到其目标页上匹配的标题文本(**号码容错**:剥离前导节号 + 折空白 + 折大小写,解决"Introduction" vs "1 Introduction" 的 arXiv 常见错位)并打 `tag="H<level>"`——复用既有 tagged-heading 通道(`heading_tag_level`→`Block.level`→树),**零 IR 改动、零 core 改动**,书签嵌套深度→层级。**安全降级**:标题锚不上→不打 tag(回退几何检测)、绝不覆盖已有 tag;**无书签文档逐字节不变**(三件套 json/md/text 实测不变,含带书签的 1901.03003——其标题未精确锚定,安全降级)。6 单测。**真实验证**:2408 的真实小节(4.2/5.2/5.3…)经书签获得正确层级。
+> **设计决策(回写)**:原 T2a/T2c 拟"IR 加 `Document.bookmarks` 字段 + core 级别校正",发现 `Document {}` 字面量遍布 29 处会大改;改为**在 PDF 后端把书签当作 H-tag 来源**(与 tagged-PDF 同一通道),零 IR/core 改动、更契合既有架构、`-f json` 对无书签文档字节不变。
+> **本迭代不做(诚实标注)**:① **StructTree 显式父子遍历**——tagged 文档的层级已由 `tag_level`(H1–H6)→`Block.level`→级别栈正确嵌套,显式遍历**冗余**,跳过;② **`source` provenance 字段**——tag-annotation 下书签源与真 tag 源同形,精确区分需贯穿全管线打标,**低价值**跳过;③ **致密学术 PDF 的几何标题误检**(如把整段当标题)是**既有标题检测质量问题**(非本结构树引入,书签命中处已被纠正,根治属 Phase B 版面模型/收紧启发式)。
 >
 > **已落地小结**：`core/outline.rs`（`Section{id,title,level,page,bbox,children}` + `build`/`get`/`breadcrumb`/`pruned`/`section_count`/`to_json`，级别栈建树、id=标题出现序、**派生不入 IR** 故 `-f json` 字节不变）；`chunk.rs` 加 `section_id` + `heading_path` 改走真实 level 栈（弃字号栈，修偏差），跨模块单测证 chunk `section_id` 精确索引进树、面包屑一致；`-f outline` + MCP `outline` 工具（`id`/`max_depth`）+ REST `?format=outline`（三接口字节一致）。验收：34 套件绿、clippy 0、三件套 json/md/text 逐字节不变。
 > **设计偏离（回写）**：原 T1 拟在 IR 加 `Document.outline` 字段；实现改为**派生 on-demand**（如 chunks），换来 `-f json` 输出**逐字节不变**（树是自有 `-f outline`），更契合"既有输出字节不变"红线 + 单一真源。`source` provenance 字段暂缓至 `/Outlines`/StructTree 接入时一并补（届时才能正确标来源）。
