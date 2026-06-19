@@ -709,6 +709,9 @@ enum Format {
     Text,
     /// Retrieval chunks with source page+bbox and heading breadcrumb (JSON).
     Chunks,
+    /// Document structure tree: nested sections (title/level/page/bbox) for
+    /// agentic navigation — list the table of contents, drill into a section (JSON).
+    Outline,
 }
 
 /// Table cell rendering inside `chunks` text.
@@ -1047,5 +1050,6 @@ fn render_doc(doc: &docparse_core::ir::Document, cli: &Cli) -> anyhow::Result<St
             };
             docparse_core::chunk::to_json(&docparse_core::chunk::chunk_document_with(doc, opts))
         }
+        Format::Outline => docparse_core::outline::to_json(&docparse_core::outline::build(doc)),
     })
 }

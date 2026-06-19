@@ -190,7 +190,15 @@ fn render(
             };
             (body, "application/json")
         }
-        other => anyhow::bail!("unknown format: {other} (json|markdown|text|chunks)"),
+        "outline" => {
+            // Structure tree (table of contents). Section ids match chunks'
+            // section_id, so a client can outline → then fetch a section's chunks.
+            (
+                docparse_core::outline::to_json(&docparse_core::outline::build(&doc)),
+                "application/json",
+            )
+        }
+        other => anyhow::bail!("unknown format: {other} (json|markdown|text|chunks|outline)"),
     })
 }
 

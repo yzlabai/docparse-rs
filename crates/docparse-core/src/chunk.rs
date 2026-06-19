@@ -36,6 +36,11 @@ pub struct Chunk {
     pub bbox: BBox,
     /// Enclosing heading breadcrumb, outermost first (section context).
     pub heading_path: Vec<String>,
+    /// Id of the enclosing [`crate::outline::Section`] (0 = before any heading /
+    /// document root). Lets a consumer map a chunk back into the structure tree
+    /// for parent-document / auto-merging retrieval.
+    #[serde(default)]
+    pub section_id: usize,
     pub char_len: usize,
 }
 
@@ -79,8 +84,19 @@ pub fn chunk_document_with(doc: &Document, opts: ChunkOptions) -> Vec<Chunk> {
     let blocks_per_page = layout::page_blocks(doc);
     let mut chunks: Vec<Chunk> = Vec::new();
     let mut next_id = 0usize;
-    // Heading breadcrumb stack: (font size, text).
-    let mut headings: Vec<(f32, String)> = Vec::new();
+    // Section stack: (heading level, section id, title), outermost first. Uses
+    // the real heading `level` (not font size) so the breadcrumb is correct even
+    // when font sizes aren't monotonic with depth, and mirrors the id scheme in
+    // `outline::build` (section id = heading appearance order) so a chunk's
+    // `section_id` indexes straight into the structure tree.
+    let mut sections: Vec<(u8, usize, String)> = Vec::new();
+    let mut next_section = 1usize;
+    let path_of = |sections: &[(u8, usize, String)]| -> Vec<String> {
+        sections.iter().map(|(_, _, t)| t.clone()).collect()
+    };
+    let section_of = |sections: &[(u8, usize, String)]| -> usize {
+        sections.last().map(|(_, id, _)| *id).unwrap_or(0)
+    };
 
     // Pending paragraph accumulator (single page).
     let mut buf: Option<ParaBuf> = None;
@@ -94,6 +110,7 @@ pub fn chunk_document_with(doc: &Document, opts: ChunkOptions) -> Vec<Chunk> {
                 page: p.page,
                 bbox: p.bbox,
                 heading_path: p.heading_path,
+                section_id: p.section_id,
                 char_len: p.char_len,
             });
             *next_id += 1;
@@ -147,7 +164,6 @@ pub fn chunk_document_with(doc: &Document, opts: ChunkOptions) -> Vec<Chunk> {
                     // List items stay one chunk each (G9b) — never folded
                     // into prose paragraphs.
                     flush(&mut buf, &mut chunks, &mut next_id);
-                    let path: Vec<String> = headings.iter().map(|(_, t)| t.clone()).collect();
                     chunks.push(Chunk {
                         id: next_id,
                         kind: ChunkKind::ListItem,
@@ -155,7 +171,8 @@ pub fn chunk_document_with(doc: &Document, opts: ChunkOptions) -> Vec<Chunk> {
                         text: b.text.clone(),
                         page: b.page,
                         bbox: b.bbox,
-                        heading_path: path,
+                        heading_path: path_of(&sections),
+                        section_id: section_of(&sections),
                     });
                     next_id += 1;
                 }
@@ -163,7 +180,6 @@ pub fn chunk_document_with(doc: &Document, opts: ChunkOptions) -> Vec<Chunk> {
                     // Code blocks are self-contained chunks — never merged
                     // into prose paragraphs (G8a).
                     flush(&mut buf, &mut chunks, &mut next_id);
-                    let path: Vec<String> = headings.iter().map(|(_, t)| t.clone()).collect();
                     chunks.push(Chunk {
                         id: next_id,
                         kind: ChunkKind::Code,
@@ -171,18 +187,25 @@ pub fn chunk_document_with(doc: &Document, opts: ChunkOptions) -> Vec<Chunk> {
                         text: b.text.clone(),
                         page: b.page,
                         bbox: b.bbox,
-                        heading_path: path,
+                        heading_path: path_of(&sections),
+                        section_id: section_of(&sections),
                     });
                     next_id += 1;
                 }
                 Item::Block(b) if b.heading => {
                     flush(&mut buf, &mut chunks, &mut next_id);
-                    // Update breadcrumb: pop same/again-deeper levels, push this.
-                    while headings.last().is_some_and(|(s, _)| *s <= b.size) {
-                        headings.pop();
+                    // Update the section stack by real heading level (mirrors
+                    // outline::build): pop same/deeper ancestors, then push this
+                    // heading as its own section. The breadcrumb is the ancestor
+                    // titles *before* the push; the heading belongs to itself.
+                    let level = b.level.max(1);
+                    while sections.last().is_some_and(|(l, _, _)| *l >= level) {
+                        sections.pop();
                     }
-                    let parent: Vec<String> = headings.iter().map(|(_, t)| t.clone()).collect();
-                    headings.push((b.size, b.text.clone()));
+                    let parent = path_of(&sections);
+                    let section_id = next_section;
+                    next_section += 1;
+                    sections.push((level, section_id, b.text.clone()));
                     chunks.push(Chunk {
                         id: next_id,
                         kind: ChunkKind::Heading,
@@ -190,12 +213,12 @@ pub fn chunk_document_with(doc: &Document, opts: ChunkOptions) -> Vec<Chunk> {
                         page: b.page,
                         bbox: b.bbox,
                         heading_path: parent,
+                        section_id,
                         char_len: b.text.chars().count(),
                     });
                     next_id += 1;
                 }
                 Item::Block(b) => {
-                    let path: Vec<String> = headings.iter().map(|(_, t)| t.clone()).collect();
                     match buf.as_mut() {
                         // Continue accumulating within the same page.
                         Some(p) if p.page == b.page && p.char_len < opts.target_chars => {
@@ -203,13 +226,13 @@ pub fn chunk_document_with(doc: &Document, opts: ChunkOptions) -> Vec<Chunk> {
                         }
                         _ => {
                             flush(&mut buf, &mut chunks, &mut next_id);
-                            buf = Some(ParaBuf::start(b, path));
+                            buf =
+                                Some(ParaBuf::start(b, path_of(&sections), section_of(&sections)));
                         }
                     }
                 }
                 Item::Table(t) => {
                     flush(&mut buf, &mut chunks, &mut next_id);
-                    let path: Vec<String> = headings.iter().map(|(_, t)| t.clone()).collect();
                     let text = if opts.table_markdown {
                         table_text_markdown(t)
                     } else {
@@ -222,7 +245,8 @@ pub fn chunk_document_with(doc: &Document, opts: ChunkOptions) -> Vec<Chunk> {
                         text,
                         page: t.page,
                         bbox: t.bbox,
-                        heading_path: path,
+                        heading_path: path_of(&sections),
+                        section_id: section_of(&sections),
                     });
                     next_id += 1;
                 }
@@ -240,16 +264,18 @@ struct ParaBuf {
     page: usize,
     bbox: BBox,
     heading_path: Vec<String>,
+    section_id: usize,
     char_len: usize,
 }
 
 impl ParaBuf {
-    fn start(b: &Block, heading_path: Vec<String>) -> Self {
+    fn start(b: &Block, heading_path: Vec<String>, section_id: usize) -> Self {
         Self {
             text: b.text.clone(),
             page: b.page,
             bbox: b.bbox,
             heading_path,
+            section_id,
             char_len: b.text.chars().count(),
         }
     }
@@ -460,6 +486,48 @@ mod tests {
         assert_eq!(hit.id, t.id);
         // a point off the table resolves to nothing here.
         assert!(locate(&chunks, 1, 100.0, 50.0).is_none());
+    }
+
+    #[test]
+    fn section_ids_index_into_the_outline_tree() {
+        use crate::outline;
+        // Nested doc: H1 > body, H2 > body, H1 > body.
+        let d = doc(vec![
+            text_el("1 Intro", 24.0, 740.0, 1),
+            text_el("intro body text here", 10.0, 712.0, 1),
+            text_el("1.1 Background", 16.0, 684.0, 1),
+            text_el("background body text", 10.0, 656.0, 1),
+            text_el("2 Methods", 24.0, 628.0, 1),
+            text_el("methods body text", 10.0, 600.0, 1),
+        ]);
+        let root = outline::build(&d);
+        let chunks = chunk_document(&d);
+
+        for c in &chunks {
+            // Every chunk references a real node in the tree.
+            let sec = root
+                .get(c.section_id)
+                .unwrap_or_else(|| panic!("chunk {} -> missing section {}", c.id, c.section_id));
+            if c.kind == ChunkKind::Heading {
+                // A heading IS its section: id matches, breadcrumb = ancestors.
+                assert_eq!(sec.title, c.text);
+                assert_eq!(c.heading_path, root.breadcrumb(c.section_id));
+            } else if c.section_id != 0 {
+                // Content sits under its section: path = ancestors + section title.
+                let mut expected = root.breadcrumb(c.section_id);
+                expected.push(sec.title.clone());
+                assert_eq!(c.heading_path, expected, "chunk {} path", c.id);
+            }
+        }
+        // The "background" paragraph is under the "1.1 Background" subsection.
+        let bg = chunks
+            .iter()
+            .find(|c| c.text.contains("background body"))
+            .unwrap();
+        assert_eq!(
+            bg.heading_path,
+            vec!["1 Intro".to_string(), "1.1 Background".to_string()]
+        );
     }
 
     #[test]

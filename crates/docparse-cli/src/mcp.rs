@@ -144,6 +144,27 @@ fn tool_specs() -> Value {
             }
         },
         {
+            "name": "outline",
+            "description": "Parse a local document into its structure tree (table of contents): \
+                            nested sections, each with title, level, page, and bbox (citable). \
+                            Navigate long documents agentically — list the top-level sections \
+                            (max_depth), then drill into one (id). Section ids match get_chunks' \
+                            section_id, so you can fetch a section's chunks next.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Local file path" },
+                    "id": { "type": "integer",
+                             "description": "Return only this section's subtree (default: whole document, root id 0)" },
+                    "max_depth": { "type": "integer",
+                                   "description": "Prune deeper than this many levels (0 = just the node; default: full tree)" },
+                    "ocr": { "type": "boolean", "description": "OCR scanned pages first (default false)" },
+                    "layout": { "type": "boolean", "description": "Layout-model reading order (PDF only)" }
+                },
+                "required": ["path"]
+            }
+        },
+        {
             "name": "locate",
             "description": "Reverse citation lookup: given a page (1-based) and a point x,y in \
                             PDF user space, return the chunk covering it (null if none).",
@@ -174,6 +195,7 @@ fn call_tool(params: &Value, state: &crate::EnhanceState) -> Result<Value, (i64,
     let run = match name {
         "parse_document" => tool_parse_document(&args, state),
         "get_chunks" => tool_get_chunks(&args, state),
+        "outline" => tool_outline(&args, state),
         "locate" => tool_locate(&args, state),
         _ => return Err((-32602, format!("unknown tool: {name}"))),
     };
@@ -246,6 +268,25 @@ fn tool_get_chunks(args: &Value, state: &crate::EnhanceState) -> anyhow::Result<
     Ok(serde_json::to_string_pretty(&envelope)?)
 }
 
+fn tool_outline(args: &Value, state: &crate::EnhanceState) -> anyhow::Result<String> {
+    let doc = parse_enhanced(args, state)?;
+    let root = docparse_core::outline::build(&doc);
+    // Optionally focus on one section's subtree.
+    let node = match args.get("id").and_then(Value::as_u64) {
+        Some(id) => root
+            .get(id as usize)
+            .ok_or_else(|| anyhow::anyhow!("no section with id {id}"))?
+            .clone(),
+        None => root,
+    };
+    // Optionally prune depth (e.g. max_depth=1 = table of contents only).
+    let node = match args.get("max_depth").and_then(Value::as_u64) {
+        Some(d) => node.pruned(d as usize),
+        None => node,
+    };
+    Ok(docparse_core::outline::to_json(&node))
+}
+
 fn tool_locate(args: &Value, state: &crate::EnhanceState) -> anyhow::Result<String> {
     let doc = parse_enhanced(args, state)?;
     let page = args
@@ -304,7 +345,23 @@ mod tests {
         assert_eq!(r["serverInfo"]["name"], "docparse");
         assert_eq!(r["protocolVersion"], "2025-03-26");
         let tools = result_of(&req("tools/list", json!({})));
-        assert_eq!(tools["tools"].as_array().unwrap().len(), 3);
+        assert_eq!(tools["tools"].as_array().unwrap().len(), 4);
+    }
+
+    #[test]
+    fn outline_tool_returns_structure_tree() {
+        let path = temp_html("docparse-mcp-outline.html");
+        let call = req(
+            "tools/call",
+            json!({ "name": "outline", "arguments": { "path": path } }),
+        );
+        let r = result_of(&call);
+        assert_eq!(r["isError"], false);
+        let tree: Value = serde_json::from_str(r["content"][0]["text"].as_str().unwrap()).unwrap();
+        // Synthetic root (id 0) with the "Title" heading as a child section.
+        assert_eq!(tree["id"], 0);
+        assert_eq!(tree["children"][0]["title"], "Title");
+        assert!(tree["children"][0]["id"].as_u64().unwrap() >= 1);
     }
 
     #[test]

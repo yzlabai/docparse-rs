@@ -1,6 +1,9 @@
 # 文档结构树迭代计划（面向 agentic 检索）
 
-> 状态：规划中（未排期）。承接调研 [refer/document-structure-tree-for-agentic-retrieval.md](../refer/document-structure-tree-for-agentic-retrieval.md)。
+> 状态：**Phase A 主体已落地（2026-06-19）**——T1/T3/T4/T5 完成；**T2 部分**完成（标题层级已含 tagged H1–H6 + 字号档位，经 `Block.level` 进树；**`/Outlines` 书签解析 + StructTree 显式嵌套保留 + source provenance 字段**留作后续）。承接调研 [refer/document-structure-tree-for-agentic-retrieval.md](../refer/document-structure-tree-for-agentic-retrieval.md)。
+>
+> **已落地小结**：`core/outline.rs`（`Section{id,title,level,page,bbox,children}` + `build`/`get`/`breadcrumb`/`pruned`/`section_count`/`to_json`，级别栈建树、id=标题出现序、**派生不入 IR** 故 `-f json` 字节不变）；`chunk.rs` 加 `section_id` + `heading_path` 改走真实 level 栈（弃字号栈，修偏差），跨模块单测证 chunk `section_id` 精确索引进树、面包屑一致；`-f outline` + MCP `outline` 工具（`id`/`max_depth`）+ REST `?format=outline`（三接口字节一致）。验收：34 套件绿、clippy 0、三件套 json/md/text 逐字节不变。
+> **设计偏离（回写）**：原 T1 拟在 IR 加 `Document.outline` 字段；实现改为**派生 on-demand**（如 chunks），换来 `-f json` 输出**逐字节不变**（树是自有 `-f outline`），更契合"既有输出字节不变"红线 + 单一真源。`source` provenance 字段暂缓至 `/Outlines`/StructTree 接入时一并补（届时才能正确标来源）。
 > 目标：把 docparse-rs **已抽取但被拍扁**的层级信息，归一成一棵**可导航的 `Section` 树**，并暴露成 agent 检索接口——让长文档（论文/报告/书籍）能"翻目录、钻章节"式检索，而非只拿扁平 chunk。
 > **与代码不符以代码为准并回写本文。** 落地前本文即 plan（SDD），实施时偏离回写。
 

@@ -36,7 +36,8 @@ cargo test                       # 全部单测（纯算法：CMap / matrix / XY
 cargo clippy --all-targets       # lint —— 目标零 warning
 cargo fmt                        # 格式化（默认风格）
 cargo build --release            # 优化构建（lto=thin, codegen-units=1）
-./target/release/docparse <file.pdf> -f json|markdown|text|chunks [-o out]
+./target/release/docparse <file.pdf> -f json|markdown|text|chunks|outline [-o out]
+                                              # outline=文档结构树(嵌套 section:title/level/page/bbox),供 agentic 导航;chunks 带 section_id 回指该树
                                               # 交互 TTY 默认显示进度+结束速度小结(stderr,不污染 stdout)
                                               # --progress auto|always|never|json / --quiet 控制;--stats 看 CPU/内存(getrusage)
 ./target/release/docparse <dir> [-r] --out-dir out/ [--report-json r.json] [--report-csv r.csv]

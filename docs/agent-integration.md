@@ -18,14 +18,15 @@
 >
 > Agent Skill 不是第五种解析路径——它只是**包装 CLI** 的使用说明（Bash 调 `docparse`），让 agent 自己按症状选增强档、用内置 `--quality`/`--profile`/`--route-plan` 自检并迭代。
 
-## 2. 输出格式（四选一）
+## 2. 输出格式（五选一）
 
-`json` | `markdown` | `text` | `chunks`
+`json` | `markdown` | `text` | `chunks` | `outline`
 
 - **json** — 完整 IR：页 → 元素（文本/表/图，带 bbox、字号、tag、span、source）。要最全的结构信息用它。
 - **markdown** — 人读 / LLM 友好的线性化（标题层级、表格、列表、代码围栏、图片引用）。
 - **text** — 纯文本，按阅读顺序。
-- **chunks** — **RAG 首选**：检索切块，每块带来源页 + bbox + 标题面包屑。
+- **chunks** — **RAG 首选**：检索切块，每块带来源页 + bbox + 标题面包屑 + `section_id`。
+- **outline** — **文档结构树**：嵌套 section（`title`/`level`/`page`/`bbox`），供 agentic 导航长文档（翻目录 → 钻章节）。section id 与 chunks 的 `section_id` 对齐，可"先 outline 拿目录，再取某节的 chunks"。
 
 ### chunk schema（`chunks` 格式 / `get_chunks` 工具）
 
@@ -36,22 +37,24 @@
   "text": "……",
   "page": 1,                     // 1-based
   "bbox": { "x0": 72.0, "y0": 690.1, "x1": 523.4, "y1": 705.8 },
-  "heading_path": ["3 Methods", "3.1 Setup"]   // 上级标题面包屑，做引用/层级过滤
+  "heading_path": ["3 Methods", "3.1 Setup"],  // 上级标题面包屑，做引用/层级过滤
+  "section_id": 12                              // 所属结构树 section（对齐 outline / `outline` 工具）
 }
 ```
 
 - **坐标系**：PDF 用户空间——原点左下、y 向上、单位 pt。无真实坐标的格式（DOCX/HTML/MD…）用合成布局折算到同一约定。
-- **引用**：`page` + `bbox` 可直接回指原文位置；`heading_path` 给检索块层级语境。
+- **引用**：`page` + `bbox` 可直接回指原文位置；`heading_path` 给检索块层级语境；`section_id` 把块挂回结构树（parent-document / auto-merging 检索）。`heading_path` 由真实标题层级（tagged H1–H6 / 字号档位）建树后导出，非字号近似。
 - json 格式里被模型替换的元素带 `source`（如 `table:unirec-0.1b`、`formula:unirec-0.1b`、`vlm:<model>`、`layout:<model>`）——溯源可见，确定性结果仍独立成立。
 
 ## 3. MCP 工具（`docparse mcp`）
 
-stdio 上的 JSON-RPC 2.0，三个工具：
+stdio 上的 JSON-RPC 2.0，四个工具：
 
 | 工具 | 作用 | 必填参数 |
 |---|---|---|
 | `parse_document` | 解析为 `json`/`markdown`/`text` | `path`（+ 可选 `format`、增强开关） |
-| `get_chunks` | 解析为检索 chunks（带 page+bbox+heading_path） | `path`（+ 可选增强开关） |
+| `get_chunks` | 解析为检索 chunks（带 page+bbox+heading_path+section_id） | `path`（+ 可选增强开关） |
+| `outline` | **文档结构树**：导航长文档——列目录 + 钻取某节 | `path`（+ 可选 `id` 取子树、`max_depth` 限深、增强开关） |
 | `locate` | **反向引用**：给页号 + 点 (x,y)，返回覆盖该点的 chunk（无则 null） | `path`、`page`、`x`、`y` |
 
 增强开关（布尔，默认 false）：`ocr`、`layout`、`table_model`、`formula_model`、`vlm_describe`、`vlm_tables`。**它们需要服务端启动时配好对应模型**（见 §5），否则缺失即跳过、不报错。
@@ -64,7 +67,9 @@ docparse mcp \
   --unirec-models models/unirec
 ```
 
-Claude Code / 兼容运行时把它登记为 stdio MCP server 即可调用上面三个工具。
+Claude Code / 兼容运行时把它登记为 stdio MCP server 即可调用上面四个工具。
+
+**导航式检索示例**（agent 翻书）：`outline {path, max_depth:1}` 拿顶层目录 → `outline {path, id:12}` 钻取第 12 节子树 → `get_chunks` 后按 `section_id==12` 取该节切块。
 
 ## 4. REST（`docparse serve`）
 
@@ -73,7 +78,7 @@ docparse serve --port 8642            # 绑 127.0.0.1
 ```
 
 - `GET /healthz` — 存活探针。
-- `POST /parse?format=json|markdown|text|chunks` — **multipart** 上传文件字段，返回对应格式。
+- `POST /parse?format=json|markdown|text|chunks|outline` — **multipart** 上传文件字段，返回对应格式（`outline` = 文档结构树，section id 对齐 chunks 的 `section_id`）。
   增强用查询参数：`?ocr=true&layout=true&table_model=true&formula_model=true&vlm_describe=true&vlm_tables=true`（同样需启动时配模型，见 §5）。
 - `format=chunks` 可加 `?envelope=true`：把裸 chunk 数组包成 `{provenance, quality, profile, chunks}`（同 MCP `get_chunks`）。RAG 消费方可据 `quality.flags`（`ScannedNoText` / `HighGarble` 等）和 `profile` 自行决定要不要对该文档开 OCR/layout，**省一次往返**。默认（不加）仍是裸数组，与 CLI 逐字节一致。
 - `format=chunks` 可加 `?table_format=markdown`：表格 chunk 文本出 GitHub 管道表（默认 `tab`=制表符/换行）。CLI 同名 `--table-format markdown`、MCP `get_chunks` 同名 `table_format` 参数 —— 三面同默认、同输出（不变量保持）。

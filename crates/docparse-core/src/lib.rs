@@ -23,6 +23,7 @@ pub mod enhance;
 pub mod ir;
 pub mod layout;
 pub mod limits;
+pub mod outline;
 pub mod output;
 pub mod parser;
 pub mod quality;
