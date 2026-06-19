@@ -79,9 +79,21 @@ struct Cli {
     #[arg(long, value_enum, default_value_t = TableFormat::Tab)]
     table_format: TableFormat,
 
-    /// Write to this file instead of stdout.
+    /// Write to this file instead of stdout. For `-f okf` this is the bundle
+    /// *directory* (omit it to auto-derive `<stem>-okf/`).
     #[arg(short, long)]
     out: Option<PathBuf>,
+
+    /// `-f okf`: prefix for each concept's `resource` URI (e.g.
+    /// `file:///data/docs/`). Default empty → the bare source basename, which
+    /// keeps bundles byte-identical across machines.
+    #[arg(long, value_name = "URI")]
+    okf_resource_base: Option<String>,
+
+    /// `-f okf`: overwrite the target bundle directory even if it exists and is
+    /// non-empty (otherwise an auto-derived non-empty dir is refused).
+    #[arg(long)]
+    force: bool,
 
     /// Print a parse-quality report (coverage/garble/flags) as JSON to stderr.
     #[arg(long)]
@@ -712,6 +724,10 @@ enum Format {
     /// Document structure tree: nested sections (title/level/page/bbox) for
     /// agentic navigation — list the table of contents, drill into a section (JSON).
     Outline,
+    /// Open Knowledge Format bundle: a directory of Markdown + YAML-frontmatter
+    /// "concept" files mirroring the structure tree (git-native, citable RAG
+    /// delivery). Writes a directory (`-o <dir>`, else auto-derived `<stem>-okf/`).
+    Okf,
 }
 
 /// Table cell rendering inside `chunks` text.
@@ -826,10 +842,17 @@ fn main() -> anyhow::Result<()> {
         input_bytes,
     );
 
-    let rendered = render_doc(&doc, &cli)?;
-    match &cli.out {
-        Some(path) => std::fs::write(path, rendered)?,
-        None => println!("{rendered}"),
+    // OKF is a directory bundle, not a stream — handle it before render_doc.
+    if matches!(cli.format, Format::Okf) {
+        let dir = cli.out.clone().unwrap_or_else(|| derived_okf_dir(input));
+        let explicit = cli.out.is_some();
+        write_okf_bundle(&doc, &cli, input, &dir, explicit)?;
+    } else {
+        let rendered = render_doc(&doc, &cli)?;
+        match &cli.out {
+            Some(path) => std::fs::write(path, rendered)?,
+            None => println!("{rendered}"),
+        }
     }
     if cli.stats {
         resources::report(&reporter, run_start.elapsed());
@@ -1051,5 +1074,95 @@ fn render_doc(doc: &docparse_core::ir::Document, cli: &Cli) -> anyhow::Result<St
             docparse_core::chunk::to_json(&docparse_core::chunk::chunk_document_with(doc, opts))
         }
         Format::Outline => docparse_core::outline::to_json(&docparse_core::outline::build(doc)),
+        // OKF writes a directory bundle, never a string — handled out-of-band.
+        Format::Okf => unreachable!("okf is written via write_okf_bundle, not render_doc"),
     })
+}
+
+/// Auto-derived OKF bundle directory for `input`: `<stem>-okf/` in the cwd.
+fn derived_okf_dir(input: &std::path::Path) -> PathBuf {
+    let stem = input
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "document".into());
+    PathBuf::from(format!("{stem}-okf"))
+}
+
+/// Build the OKF options for `input` (basename + mtime + resource base) and
+/// write the bundle under `dir`. An auto-derived (`!explicit`) non-empty dir is
+/// refused unless `--force`; an explicit `-o` dir is trusted.
+fn write_okf_bundle(
+    doc: &docparse_core::ir::Document,
+    cli: &Cli,
+    input: &std::path::Path,
+    dir: &std::path::Path,
+    explicit: bool,
+) -> anyhow::Result<()> {
+    if !explicit && !cli.force && dir_nonempty(dir) {
+        anyhow::bail!(
+            "{} exists and is not empty; use -o to target it or --force to overwrite",
+            dir.display()
+        );
+    }
+    let opts = okf_options(cli, input);
+    let bundle = docparse_core::okf::build(doc, &opts);
+    let concepts = bundle
+        .files
+        .iter()
+        .filter(|(p, _)| p.file_name().and_then(|n| n.to_str()) != Some("index.md"))
+        .count();
+    bundle.write_to(dir)?;
+    eprintln!(
+        "wrote OKF bundle to {}/ ({concepts} concept(s))",
+        dir.display()
+    );
+    Ok(())
+}
+
+/// Assemble [`docparse_core::okf::OkfOptions`] from the CLI + source file: the
+/// basename for `resource` URIs and the file's mtime as a deterministic
+/// ISO 8601 timestamp (never the wall clock).
+pub(crate) fn okf_options(cli: &Cli, input: &std::path::Path) -> docparse_core::okf::OkfOptions {
+    let source_name = input
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let timestamp = std::fs::metadata(input)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| iso8601_utc(d.as_secs()));
+    docparse_core::okf::OkfOptions {
+        resource_base: cli.okf_resource_base.clone().unwrap_or_default(),
+        source_name,
+        timestamp,
+        table_markdown: matches!(cli.table_format, TableFormat::Markdown),
+    }
+}
+
+/// True if `dir` exists and contains at least one entry.
+fn dir_nonempty(dir: &std::path::Path) -> bool {
+    std::fs::read_dir(dir)
+        .map(|mut it| it.next().is_some())
+        .unwrap_or(false)
+}
+
+/// Format Unix seconds as `YYYY-MM-DDTHH:MM:SSZ` (UTC), dependency-free via the
+/// days-from-civil algorithm — deterministic, so bundles stay byte-identical.
+fn iso8601_utc(secs: u64) -> String {
+    let days = (secs / 86_400) as i64;
+    let rem = secs % 86_400;
+    let (hh, mm, ss) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    // Howard Hinnant's civil_from_days (epoch 1970-01-01).
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{y:04}-{m:02}-{d:02}T{hh:02}:{mm:02}:{ss:02}Z")
 }

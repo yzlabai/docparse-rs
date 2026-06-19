@@ -27,6 +27,7 @@
 - **text** — 纯文本，按阅读顺序。
 - **chunks** — **RAG 首选**：检索切块，每块带来源页 + bbox + 标题面包屑 + `section_id`。
 - **outline** — **文档结构树**：嵌套 section（`title`/`level`/`page`/`bbox`），供 agentic 导航长文档（翻目录 → 钻章节）。section id 与 chunks 的 `section_id` 对齐，可"先 outline 拿目录，再取某节的 chunks"。
+- **okf** — **Open Knowledge Format bundle**（写**目录**，非 stdout）：结构树 → 一 section 一 Markdown+YAML-frontmatter "concept" 文件，目录嵌套镜像树，厂商中立、git 原生、每 concept `resource` 带 page+bbox 可溯源。`-o <dir>` 或自动派生 `<stem>-okf/`（`--force` 覆盖、`--okf-resource-base <uri>` 前缀）。RAG 知识库可直接 `git add`，OKF-aware agent 零适配 mount。确定性（同源 mtime → 字节一致）。
 
 ### chunk schema（`chunks` 格式 / `get_chunks` 工具）
 

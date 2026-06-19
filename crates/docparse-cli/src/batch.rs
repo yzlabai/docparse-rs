@@ -107,7 +107,7 @@ pub fn run(cli: &Cli, reporter: &Reporter) -> anyhow::Result<()> {
                 bytes,
                 pages: doc.pages.len(),
                 secs: t.elapsed().as_secs_f64(),
-                error: write_output(cli, &inp.rel, &doc)
+                error: write_output(cli, &inp.path, &inp.rel, &doc)
                     .err()
                     .map(|e| format!("write: {e}")),
             },
@@ -178,12 +178,28 @@ pub fn run(cli: &Cli, reporter: &Reporter) -> anyhow::Result<()> {
 /// name avoids `a.pdf`/`a.docx` colliding on `a.json`; mirroring `rel`'s sub-dirs
 /// avoids same-named files in different folders colliding in a recursive run.
 /// No-op when there's no `--out-dir` (report-only run).
-fn write_output(cli: &Cli, rel: &Path, doc: &docparse_core::ir::Document) -> anyhow::Result<()> {
+fn write_output(
+    cli: &Cli,
+    src: &Path,
+    rel: &Path,
+    doc: &docparse_core::ir::Document,
+) -> anyhow::Result<()> {
     let Some(dir) = &cli.out_dir else {
         return Ok(());
     };
-    let rendered = render_doc(doc, cli)?;
     let rel = safe_rel(rel);
+    // OKF is a directory bundle, one per file: <out-dir>/<rel-fullname>-okf/.
+    // Keep the full source name (not the stem) so a.pdf / a.docx don't collide.
+    if matches!(cli.format, Format::Okf) {
+        let bundle_dir = dir.join(format!("{}-okf", rel.display()));
+        if let Some(parent) = bundle_dir.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let opts = crate::okf_options(cli, src);
+        docparse_core::okf::build(doc, &opts).write_to(&bundle_dir)?;
+        return Ok(());
+    }
+    let rendered = render_doc(doc, cli)?;
     let target = dir.join(format!("{}.{}", rel.display(), output_ext(cli.format)));
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)?;
@@ -221,6 +237,7 @@ fn output_ext(format: Format) -> &'static str {
         Format::Json | Format::Chunks | Format::Outline => "json",
         Format::Markdown => "md",
         Format::Text => "txt",
+        Format::Okf => "okf", // unused: OKF writes a directory, handled above
     }
 }
 
