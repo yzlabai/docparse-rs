@@ -45,7 +45,9 @@ space. Models are optional enhancements — digital documents never invoke one.
 | Parse PDF / DOCX / HTML / XLSX / PPTX / MD / CSV / SRT / TeX / EML / image / AsciiDoc | ✅ |
 | Convert to Markdown / plain text | ✅ |
 | Export structured JSON IR (pages → elements with bbox, font size, tag, span, source) | ✅ |
-| Chunk for RAG (page + bbox + heading breadcrumb per chunk) | ✅ (`-f chunks`) |
+| Chunk for RAG (page + bbox + heading breadcrumb + section_id per chunk) | ✅ (`-f chunks`) |
+| Document structure tree for agentic navigation (nested sections, citable) | ✅ (`-f outline`, MCP `outline`) |
+| Export a git-native, citable OKF knowledge bundle | ✅ (`-f okf`, `--okf-tar`, MCP `export_okf`) |
 | OCR scanned / image-only PDFs | ✅ (`--ocr`, opt-in) |
 | Re-extract tables (merged cells / multi-row headers) | ✅ (`--table-model` local, or `--vlm-tables` service) |
 | Formulas → LaTeX | ✅ (`--formula-model`) |
@@ -87,7 +89,9 @@ pass `-o/--out <file>`.
 | **JSON** (default) | `-f json` | Fullest structure: pages → elements (text/table/image) with bbox, font size, `tag`, `span`, `source`. |
 | **Markdown** | `-f markdown` | Human/LLM-friendly linearization (heading levels, tables, lists, code fences, image refs). |
 | **Text** | `-f text` | Plain text in reading order. |
-| **Chunks** | `-f chunks` | **RAG-preferred** retrieval chunks, each with source page + bbox + heading breadcrumb. |
+| **Chunks** | `-f chunks` | **RAG-preferred** retrieval chunks, each with source page + bbox + heading breadcrumb + `section_id`. |
+| **Outline** | `-f outline` | Document **structure tree**: nested sections (title/level/page/bbox). For "what's the structure / table of contents" and agentic navigation (section ids match chunks' `section_id`). |
+| **OKF** | `-f okf` | **Open Knowledge Format** bundle (writes a *directory*, or `--okf-tar` to stdout): one Markdown+frontmatter concept file per section, git-native and citable. For delivering a parsed doc into a knowledge base. |
 
 ```bash
 docparse report.pdf -f markdown -o /tmp/report.md
@@ -97,8 +101,11 @@ docparse report.pdf -f chunks   -o /tmp/report.chunks.json
 
 > If the user does not specify a format: for **RAG / ingestion** default to
 > `-f chunks`; for **"convert"/"read it"** default to `-f markdown`; for
-> **"give me the structure/coordinates"** default to `-f json`. When genuinely
-> ambiguous, ask: "Markdown, plain text, structured JSON, or RAG chunks?"
+> **"give me the structure/coordinates"** default to `-f json`; for **"what's the
+> structure / outline / table of contents"** or navigating a long doc, `-f outline`;
+> for **delivering into a knowledge base** (git-native, citable), `-f okf`. When
+> genuinely ambiguous, ask: "Markdown, plain text, structured JSON, RAG chunks,
+> structure tree, or an OKF bundle?"
 
 #### chunk schema (`-f chunks`)
 
@@ -110,6 +117,7 @@ docparse report.pdf -f chunks   -o /tmp/report.chunks.json
   "page": 1,                     // 1-based
   "bbox": { "x0": 72.0, "y0": 690.1, "x1": 523.4, "y1": 705.8 },
   "heading_path": ["3 Methods", "3.1 Setup"],   // enclosing heading breadcrumb
+  "section_id": 12,              // enclosing structure-tree section (matches -f outline ids)
   "char_len": 142
 }
 ```
