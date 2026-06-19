@@ -30,7 +30,8 @@ docparse-rs turns **PDF · DOCX · HTML · XLSX · PPTX · Markdown · CSV · SR
 
 - 🦀 **One pure-Rust binary** — ~29 MB, zero runtime deps, <10 ms warm parse (~700 pages/s)
 - 🔌 **Four faces, one output** — CLI / library / MCP (stdio) / REST, **byte-identical across all**
-- 📍 **RAG-native citations** — every chunk carries page + bbox + heading breadcrumbs; `locate(x, y)` reverse lookup, 100% coverage
+- 📍 **RAG-native citations** — every chunk carries page + bbox + heading breadcrumbs + `section_id`; `locate(x, y)` reverse lookup, 100% coverage
+- 🌲 **Document structure tree** — nested sections (title/level/page/bbox) for agentic navigation (`-f outline`, MCP `outline`); export a citable, git-native **OKF** knowledge bundle (`-f okf`, deterministic tar)
 - 🔍 **In-process OCR** — `--ocr` runs ONNX on `tract` (PP-OCRv6 tiny by default; offers to fetch ~7 MB on first use); digital pages never touch a model; CCITT G3/G4 fax + JBIG2 scans covered
 - 🧠 **Embedded models, opt-in** — merged-cell table structure, formula→LaTeX, full-page transcription (UniRec-0.1B), plus PP-DocLayoutV2 / DocLayout-YOLO layout
 - 🛡️ **Security pre-checks** — hidden-text filtering (flagged & auditable, never silently dropped), zip-bomb & page-count guards, per-page complexity profiling
@@ -70,7 +71,10 @@ All three give you the `docparse` binary. The core needs no models — optional 
 ```bash
 docparse input.pdf -f json       # full IR: provenance + coordinates
 docparse input.pdf -f markdown   # Markdown
-docparse input.pdf -f chunks     # RAG chunks (page + bbox + breadcrumbs)
+docparse input.pdf -f chunks     # RAG chunks (page + bbox + breadcrumbs + section_id)
+docparse input.pdf -f outline    # document structure tree (nested sections, citable)
+docparse input.pdf -f okf        # OKF knowledge bundle → report-okf/ (git-native, --okf-tar for stdout)
+docparse ./papers --out-dir out/ --jobs 8   # batch a folder (file-level parallelism for digital docs)
 docparse scan.pdf  --ocr         # OCR scans (free for digital pages; offers to fetch models/ppocr-v6 on first use)
 ```
 
@@ -93,7 +97,7 @@ docparse input.pdf --quality --profile --route-plan          # quality / per-pag
 ### Plug into an agent
 
 ```bash
-claude mcp add docparse -- docparse mcp     # MCP tools: parse_document / get_chunks / locate
+claude mcp add docparse -- docparse mcp     # MCP tools: parse_document / get_chunks / outline / export_okf / locate
 docparse serve --port 8642                                  # REST: POST /parse (multipart) + GET /healthz
 curl -F "file=@doc.pdf" "http://127.0.0.1:8642/parse?format=chunks&ocr=true"
 ```
@@ -131,7 +135,7 @@ Scored on **[OmniDocBench](https://github.com/opendatalab/OmniDocBench)** (CVPR 
 | PDF engine | **own content-stream interpreter** | wraps PDFium | own | veraPDF | (delegates) |
 | Determinism | **byte-identical default path** | deterministic | not strictly | deterministic | deterministic |
 | Citations | **page+bbox both ways, 100%** | bbox per text element | element-level | coordinates | none |
-| Output | JSON / **Markdown** / text / **RAG chunks** | JSON / text / PNG | Markdown / JSON | JSON / Markdown | Markdown |
+| Output | JSON / **Markdown** / text / **RAG chunks** / **structure tree** / **OKF bundle** | JSON / text / PNG | Markdown / JSON | JSON / Markdown | Markdown |
 | Formats | **12, all in-process** | PDF native; others via external convert | 15+ | PDF-focused | 20+ |
 | Hard pages | opt-in embedded models (table/formula/CJK) | none (by design) | neural layout | rule-based | none |
 | Speed (born-digital) | **<10 ms / ~700 pg/s** | fast | seconds/page | fast | fast |
