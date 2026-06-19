@@ -692,18 +692,28 @@ fn make_block(a: Acc, body_size: f32) -> Block {
     // whose text shape (numbered / all-caps) reads like a section header, or a
     // short fully-bold line (title-case subsection at body size) — and never a
     // code/data line.
-    let short = a.text.chars().count() <= 60;
+    let nchars = a.text.chars().count();
+    let short = nchars <= 60;
+    // A real heading is short — full stop. A long "heading" is a misdetected
+    // paragraph: an emphasized lead, a figure caption, or (on dense two-column
+    // pages) two columns merged into one line whose first chunk happened to be
+    // tagged. The cap is generous (120, vs the ≤55 / ≤60 of the text/bold rules)
+    // so genuine titles and long section headers still pass, and it gates EVERY
+    // path — including a tag — because even a tagged 500-char "heading" is a tag
+    // artifact, never a section header. (A real tagged H1..H6 is short.)
+    let heading_len_ok = nchars <= 120;
     // Author-declared semantics (tagged PDFs) override the geometric rules:
     // H1..H6 forces a heading, P/Figure/Caption/… vetoes one.
-    let heading = a.tag_level.is_some()
-        || (!a.tagged_body
-            && a.lines == 1
-            && !looks_like_code(&a.text)
-            && !a.mono
-            && !a.form
-            && ((body_size > 0.0 && a.size > body_size * 1.25)
-                || is_heading_text(&a.text)
-                || (a.bold && short)));
+    let heading = heading_len_ok
+        && (a.tag_level.is_some()
+            || (!a.tagged_body
+                && a.lines == 1
+                && !looks_like_code(&a.text)
+                && !a.mono
+                && !a.form
+                && ((body_size > 0.0 && a.size > body_size * 1.25)
+                    || is_heading_text(&a.text)
+                    || (a.bold && short))));
     Block {
         text: a.text,
         size: a.size,
@@ -1099,6 +1109,23 @@ mod tests {
         let blocks = group_blocks(&lines, 10.0, FILL);
         assert!(blocks[0].heading);
         assert!(!blocks[1].heading);
+    }
+
+    #[test]
+    fn long_large_font_line_is_not_a_heading() {
+        // A large-font but long line (an emphasized lead paragraph / figure
+        // caption / merged 2-column line) is prose, not a section header — the
+        // font-size rule is length-capped so it can't pollute the heading set.
+        let long = "Figure 1: On the left hand side we show an example code \
+                    completion task where the engine generates a secure hash \
+                    function based on the input prefix and suffix shown here";
+        assert!(long.chars().count() > 120, "fixture must exceed the cap");
+        let lines = vec![line(long, 14.0, 300.0), line("body text here", 10.0, 270.0)];
+        let blocks = group_blocks(&lines, 10.0, FILL);
+        assert!(
+            !blocks[0].heading,
+            "long large-font line must not be a heading"
+        );
     }
 
     #[test]

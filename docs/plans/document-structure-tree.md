@@ -197,9 +197,12 @@ curl 127.0.0.1:8642/section/12?path=paper.pdf
 5. **IR 膨胀**：节点**引用**不搬运（T1 要点①），否则 JSON 翻倍。
 6. **确定性**：建树/锚定全程可复现，守 roadmap §1。
 
-## 7. Phase B / C（路线，不在本迭代）
+## 7. Phase B / C
 
-- **Phase B（可选增强）**：ToC 目录页解析（无书签的扫描书籍，ICDAR2013 法）；复用 PP-DocLayoutV2 标题类语义补字号不单调/跨栏难例。
+- **Phase B（标题检测质量）**：
+  - **✅ 已落地（2026-06-19）确定性标题长度上限**：`make_block` 的标题判定整体加 `nchars ≤ 120` 闸（[layout.rs](../../crates/docparse-core/src/layout.rs) `heading_len_ok`，**门控全部路径含 tag**）——杀致密双栏 PDF 把整段/跨栏合并行误判成的 200–500 字"标题"；real 标题/长 section header（<120）与三件套 json/md/text **逐字节不变**（验证:lorem/1901/bialetti 全 identical）。`is_heading_text`(≤55)/bold(≤60) 本就更严。单测 `long_large_font_line_is_not_a_heading`。
+  - **✅ 模型路径确认**：致密双栏的残留噪声（~100 字跨栏合并碎片，line-reconstruction 天花板）由 **`--layout`** 解决——实测 2408 `--layout -f outline` 产出真章节树（"1. Introduction"/"2. Code Completion"/"3.1 Attacker's Goal"/"3. Threat Model"/"4. The INSEC Attack"/"5. Experimental Evaluation"）。即确定性快路径已收紧，难版面交版面模型（roadmap 既定分工）。
+  - **候**：ToC 目录页解析（无书签扫描书籍，ICDAR2013 法）；进一步收紧双栏 line-reconstruction（高风险，易回归多栏文档，暂不动）。
 - **Phase C（外接，信封外）**：RAPTOR 式摘要树经可插拔边界外接 LLM/embedding，叠在结构树上做多抽象层检索；**不进主流程**。
 
 ## 8. 不变量（都要守）
