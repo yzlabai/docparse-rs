@@ -31,7 +31,8 @@ docparse-rs turns **PDF · DOCX · HTML · XLSX · PPTX · Markdown · CSV · SR
 - 🦀 **One pure-Rust binary** — ~29 MB, zero runtime deps, <10 ms warm parse (~700 pages/s)
 - 🔌 **Four faces, one output** — CLI / library / MCP (stdio) / REST, **byte-identical across all**
 - 📍 **RAG-native citations** — every chunk carries page + bbox + heading breadcrumbs + `section_id`; `locate(x, y)` reverse lookup, 100% coverage
-- 🌲 **Document structure tree** — nested sections (title/level/page/bbox) for agentic navigation (`-f outline`, MCP `outline`); export a citable, git-native **OKF** knowledge bundle (`-f okf`, deterministic tar)
+- 🌲 **Document structure tree** — nested sections (title/level/page/bbox) for agentic navigation (`-f outline`, MCP `outline`); chunks carry `section_id` back into the tree
+- 📦 **OKF knowledge bundles** — first-class [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf) producer (`-f okf`): structure tree → vendor-neutral, git-native Markdown bundle; citable (page+bbox), deterministic (byte-identical, no wall clock), one binary — no Python/JVM/service. Also MCP `export_okf` / REST `?format=okf`
 - 🔍 **In-process OCR** — `--ocr` runs ONNX on `tract` (PP-OCRv6 tiny by default; offers to fetch ~7 MB on first use); digital pages never touch a model; CCITT G3/G4 fax + JBIG2 scans covered
 - 🧠 **Embedded models, opt-in** — merged-cell table structure, formula→LaTeX, full-page transcription (UniRec-0.1B), plus PP-DocLayoutV2 / DocLayout-YOLO layout
 - 🛡️ **Security pre-checks** — hidden-text filtering (flagged & auditable, never silently dropped), zip-bomb & page-count guards, per-page complexity profiling
