@@ -29,6 +29,8 @@ pub mod output;
 pub mod parser;
 pub mod quality;
 pub mod reading_order;
+#[cfg(feature = "schema")]
+pub mod schema;
 pub mod synth;
 pub mod table;
 pub mod table_cluster;

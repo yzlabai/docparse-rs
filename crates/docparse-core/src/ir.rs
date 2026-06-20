@@ -6,6 +6,12 @@
 
 use serde::{Deserialize, Serialize};
 
+// Every type below that appears in a serialized output also carries
+// `#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]`, so the JSON
+// Schema for the agent-facing contract is generated from these very types (one
+// source of truth — see `crate::schema`). It compiles to nothing without the
+// `schema` feature, so pure-library builds don't pull schemars.
+
 /// Version of this IR schema. Bumped when the serialized shape changes so an
 /// agent consuming the JSON can check compatibility. Semantic versioning.
 pub const SCHEMA_VERSION: &str = "0.7.0";
@@ -14,6 +20,7 @@ pub const SCHEMA_VERSION: &str = "0.7.0";
 /// which schema. The agent-facing trust/repro anchor (one per document; an
 /// element's *source location* is its own `bbox`+`page`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Provenance {
     pub schema_version: String,
     /// Producing parser, e.g. "pdf".
@@ -39,6 +46,7 @@ fn full_confidence() -> f32 {
 
 /// Axis-aligned bounding box in PDF user space (origin bottom-left).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct BBox {
     pub x0: f32,
     pub y0: f32,
@@ -61,6 +69,7 @@ impl BBox {
 
 /// A run of text with a position. The atomic unit emitted by parsers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct TextChunk {
     pub text: String,
     pub bbox: BBox,
@@ -104,6 +113,7 @@ pub struct TextChunk {
 
 /// Pixel format of an extracted raster image payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ImageKind {
     /// Recorded position-only (unsupported encoding or below the size gate).
@@ -123,6 +133,7 @@ pub enum ImageKind {
 /// asked to decode everything (image export). It is never serialized; the
 /// JSON keeps bbox/dims for audit, plus `file` once exported to disk.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ImageChunk {
     pub bbox: BBox,
     pub page: usize,
@@ -154,6 +165,7 @@ pub struct ImageChunk {
 
 /// One cell of a [`Table`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Cell {
     pub text: String,
     pub bbox: BBox,
@@ -191,6 +203,7 @@ fn u8_is_zero(v: &u8) -> bool {
 /// A detected table: a grid of cells bounded by ruling lines. Built by the
 /// semantic layer ([`crate::table`]) from text chunks + vector segments.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Table {
     pub bbox: BBox,
     pub page: usize,
@@ -205,6 +218,7 @@ pub struct Table {
 /// One element on a page. `Table` is the first semantic block; lists/headings
 /// build on these primitives later.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Element {
     Text(TextChunk),
@@ -213,6 +227,7 @@ pub enum Element {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Page {
     pub number: usize,
     pub width: f32,
@@ -237,6 +252,7 @@ impl Page {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Document {
     /// Source path or identifier the document was parsed from.
     pub source: String,

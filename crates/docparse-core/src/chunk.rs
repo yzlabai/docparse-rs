@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 /// What kind of content a chunk holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ChunkKind {
     Heading,
@@ -25,6 +26,7 @@ pub enum ChunkKind {
 
 /// A retrieval chunk with a precise source anchor.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Chunk {
     /// Stable sequential id within the document.
     pub id: usize,

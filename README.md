@@ -99,9 +99,12 @@ docparse input.pdf --quality --profile --route-plan          # quality / per-pag
 
 ```bash
 claude mcp add docparse -- docparse mcp     # MCP tools: parse_document / get_chunks / outline / export_okf / locate
-docparse serve --port 8642                                  # REST: POST /parse (multipart) + GET /healthz
+                                            #   + outputSchema/structuredContent, resources (schemas + decision guide), prompts
+docparse serve --port 8642                                  # REST: POST /parse + GET /healthz + GET /openapi.json + /schema/{name}
 curl -F "file=@doc.pdf" "http://127.0.0.1:8642/parse?format=chunks&ocr=true"
 ```
+
+**Machine-readable contract** — every output format has a JSON Schema (draft 2020-12) generated from the code (one source of truth, golden-tested against drift), so external projects can codegen typed clients instead of reading prose. `docparse schema [--write]` emits them ([`schemas/`](schemas/)); REST serves `GET /openapi.json` + `GET /schema/{name}`; MCP advertises them per-tool and as resources. See [agent integration → §6b](docs/agent-integration.md).
 
 ```python
 # Python / LangChain (clients/python — zero-dependency thin client)

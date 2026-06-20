@@ -3,14 +3,22 @@
 //! What: exposes the parser as five MCP tools — `parse_document`,
 //! `get_chunks`, `outline`, `export_okf`, `locate` — so agents (Claude Code,
 //! claude.ai, …) can call docparse directly and get structured results with
-//! provenance + bbox citations, no shell wrapping.
+//! provenance + bbox citations, no shell wrapping. Each tool also advertises an
+//! `outputSchema` and returns `structuredContent` (the parsed JSON), so a client
+//! can type/validate results without parsing the text block.
+//!
+//! Beyond tools, the server is self-describing for agents that connect with no
+//! out-of-band docs: `resources/*` exposes the output JSON Schemas plus two
+//! usage guides (integration + enhancement-decision matrix), and `prompts/*`
+//! ships ready templates (`parse-for-rag`, `navigate-document`). So an agent
+//! that connects discovers *when* to flip `ocr`/`layout`/… without reading
+//! external docs.
 //!
 //! Why hand-written: the MCP stdio transport is newline-delimited JSON-RPC
-//! 2.0 with three methods we care about (`initialize`, `tools/list`,
-//! `tools/call`); `serde_json` covers that without an SDK, keeping the
-//! zero-dependency single-binary identity. Pinned to MCP protocol revision
-//! "2025-03-26" — revisit (or adopt the official `rmcp` SDK) if the spec
-//! moves in ways that matter here.
+//! 2.0; `serde_json` covers the handful of methods we implement without an SDK,
+//! keeping the zero-dependency single-binary identity. Pinned to MCP protocol
+//! revision "2025-06-18" (adds `outputSchema`/`structuredContent`) — revisit
+//! (or adopt the official `rmcp` SDK) if the spec moves in ways that matter.
 //!
 //! Error model: protocol problems (bad JSON, unknown method/tool) are
 //! JSON-RPC errors; tool execution failures (unreadable file, parse error)
@@ -21,7 +29,13 @@ use docparse_core::output;
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 
-const PROTOCOL_VERSION: &str = "2025-03-26";
+const PROTOCOL_VERSION: &str = "2025-06-18";
+
+/// Two usage guides shipped as MCP resources (compiled in so they never drift
+/// from the repo docs). `agent-integration.md` is the interface tour;
+/// `enhancement-decisions.md` is the quality-flag → which-flag matrix.
+const GUIDE_INTEGRATION: &str = include_str!("../../../docs/agent-integration.md");
+const GUIDE_DECISIONS: &str = include_str!("../../../docs/agent-enhancement-decisions.md");
 
 /// Run the stdio loop until stdin closes. One JSON-RPC message per line.
 /// `state` holds the lazily-loaded enhancement models behind the tools'
@@ -61,13 +75,13 @@ fn handle_line(line: &str, state: &crate::EnhanceState) -> Option<String> {
 
     let outcome = match method {
         "initialize" => Ok(json!({
-            // Echo the client's requested revision when present; we don't use
-            // revision-specific features beyond the basics pinned above.
+            // Echo the client's requested revision when present; default to the
+            // revision we target.
             "protocolVersion": params
                 .get("protocolVersion")
                 .and_then(Value::as_str)
                 .unwrap_or(PROTOCOL_VERSION),
-            "capabilities": { "tools": {} },
+            "capabilities": { "tools": {}, "resources": {}, "prompts": {} },
             "serverInfo": {
                 "name": "docparse",
                 "version": env!("CARGO_PKG_VERSION"),
@@ -76,6 +90,10 @@ fn handle_line(line: &str, state: &crate::EnhanceState) -> Option<String> {
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tool_specs() })),
         "tools/call" => call_tool(&params, state),
+        "resources/list" => Ok(json!({ "resources": resource_specs() })),
+        "resources/read" => read_resource(&params),
+        "prompts/list" => Ok(json!({ "prompts": prompt_specs() })),
+        "prompts/get" => get_prompt(&params),
         _ => Err((-32601, format!("method not found: {method}"))),
     };
     Some(
@@ -92,7 +110,7 @@ fn rpc_error(id: Value, code: i64, message: &str) -> Value {
 }
 
 fn tool_specs() -> Value {
-    json!([
+    let mut tools = json!([
         {
             "name": "parse_document",
             "description": "Parse a local document (PDF/DOCX/HTML) into json, markdown, or text. \
@@ -200,7 +218,56 @@ fn tool_specs() -> Value {
                 "required": ["path", "page", "x", "y"]
             }
         }
-    ])
+    ]);
+    // Attach an `outputSchema` to every tool whose result is always a structured
+    // JSON object (MCP 2025-06-18). `parse_document` is intentionally omitted —
+    // its output is json *or* markdown/text depending on the `format` argument.
+    if let Some(arr) = tools.as_array_mut() {
+        for t in arr.iter_mut() {
+            let name = t.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
+            if let (Some(schema), Some(obj)) = (output_schema_for(&name), t.as_object_mut()) {
+                obj.insert("outputSchema".to_string(), schema);
+            }
+        }
+    }
+    tools
+}
+
+/// A named output schema with its top-level `$schema` stripped, so it nests
+/// cleanly as a subschema inside a tool's `outputSchema`.
+fn embed_schema(name: &str) -> Value {
+    let mut v = docparse_core::schema::by_name(name).unwrap_or(Value::Bool(true));
+    if let Some(obj) = v.as_object_mut() {
+        obj.remove("$schema");
+    }
+    v
+}
+
+/// The `outputSchema` for tools that always return a JSON object. The schemas
+/// are generated from the same code as `docparse schema` / REST `/openapi.json`.
+fn output_schema_for(tool: &str) -> Option<Value> {
+    Some(match tool {
+        "get_chunks" => json!({
+            "type": "object",
+            "description": "Chunk envelope: chunks plus provenance, quality, and per-page profile.",
+            "properties": {
+                "provenance": { "type": ["object", "null"] },
+                "quality": embed_schema("quality"),
+                "profile": { "type": "array", "items": embed_schema("profile") },
+                "chunks": { "type": "array", "items": embed_schema("chunk") }
+            },
+            "required": ["chunks", "quality", "profile"]
+        }),
+        "outline" => embed_schema("outline"),
+        "export_okf" => embed_schema("okf-bundle"),
+        "locate" => json!({
+            "type": "object",
+            "description": "The chunk covering the point, or null in `match` if none.",
+            "properties": { "match": { "oneOf": [embed_schema("chunk"), { "type": "null" }] } },
+            "required": ["match"]
+        }),
+        _ => return None,
+    })
 }
 
 /// Dispatch `tools/call`. Unknown tool = protocol error; tool failure = result
@@ -220,7 +287,19 @@ fn call_tool(params: &Value, state: &crate::EnhanceState) -> Result<Value, (i64,
         _ => return Err((-32602, format!("unknown tool: {name}"))),
     };
     Ok(match run {
-        Ok(text) => json!({ "content": [{ "type": "text", "text": text }], "isError": false }),
+        Ok(text) => {
+            // The text block stays byte-identical to the prior protocol (and to
+            // the CLI/REST faces). When the result is structured JSON, also
+            // surface it as `structuredContent` (MCP 2025-06-18) so a client can
+            // consume it typed against the tool's `outputSchema` — derived from
+            // the very same text, so the two never disagree.
+            let mut result =
+                json!({ "content": [{ "type": "text", "text": text }], "isError": false });
+            if let Some(structured) = structured_content(name, &text) {
+                result["structuredContent"] = structured;
+            }
+            result
+        }
         Err(e) => json!({
             "content": [{ "type": "text", "text": format!("error: {e:#}") }],
             "isError": true
@@ -228,10 +307,139 @@ fn call_tool(params: &Value, state: &crate::EnhanceState) -> Result<Value, (i64,
     })
 }
 
+/// Build the optional `structuredContent` for a successful tool result from its
+/// text. `structuredContent` must be a JSON object, so: object-valued results
+/// (get_chunks/outline/export_okf, and parse_document only when `format=json`)
+/// pass through; `locate` (chunk-or-null) is wrapped as `{ "match": … }`.
+fn structured_content(tool: &str, text: &str) -> Option<Value> {
+    let value: Value = serde_json::from_str(text).ok()?;
+    match tool {
+        "locate" => Some(json!({ "match": value })),
+        // Only attach when the body is a JSON object — skips parse_document's
+        // markdown/text output (not JSON) without needing the format here.
+        _ if value.is_object() => Some(value),
+        _ => None,
+    }
+}
+
 fn str_arg<'a>(args: &'a Value, key: &str) -> anyhow::Result<&'a str> {
     args.get(key)
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow::anyhow!("missing required argument: {key}"))
+}
+
+// --- Resources: the output schemas + two usage guides, so an agent that
+// connects over MCP discovers the contract and the decision matrix with no
+// out-of-band docs. URIs are stable; schema URIs mirror `docparse schema`. ---
+
+fn resource_specs() -> Value {
+    let mut list = vec![
+        json!({
+            "uri": "docparse://guide/agent-integration.md",
+            "name": "agent-integration",
+            "title": "docparse — agent integration guide",
+            "description": "How to drive docparse from an agent: faces, formats, typical patterns.",
+            "mimeType": "text/markdown"
+        }),
+        json!({
+            "uri": "docparse://guide/enhancement-decisions.md",
+            "name": "enhancement-decisions",
+            "title": "When to enable ocr / layout / table / formula / vlm",
+            "description": "Read the quality flags, flip the right enhancement. The self-check loop.",
+            "mimeType": "text/markdown"
+        }),
+    ];
+    for s in docparse_core::schema::all() {
+        list.push(json!({
+            "uri": format!("docparse://schema/{}.json", s.name),
+            "name": format!("schema:{}", s.name),
+            "title": s.title,
+            "mimeType": "application/schema+json"
+        }));
+    }
+    Value::Array(list)
+}
+
+fn read_resource(params: &Value) -> Result<Value, (i64, String)> {
+    let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
+    let (mime, text) = match uri {
+        "docparse://guide/agent-integration.md" => ("text/markdown", GUIDE_INTEGRATION.to_string()),
+        "docparse://guide/enhancement-decisions.md" => {
+            ("text/markdown", GUIDE_DECISIONS.to_string())
+        }
+        _ => {
+            let name = uri
+                .strip_prefix("docparse://schema/")
+                .and_then(|s| s.strip_suffix(".json"));
+            match name.and_then(docparse_core::schema::by_name) {
+                Some(schema) => (
+                    "application/schema+json",
+                    serde_json::to_string_pretty(&schema).unwrap_or_default(),
+                ),
+                None => return Err((-32602, format!("unknown resource: {uri}"))),
+            }
+        }
+    };
+    Ok(json!({ "contents": [{ "uri": uri, "mimeType": mime, "text": text }] }))
+}
+
+// --- Prompts: ready templates that encode the recommended workflows so an
+// agent can invoke them by name instead of reconstructing the loop. ---
+
+fn prompt_specs() -> Value {
+    json!([
+        {
+            "name": "parse-for-rag",
+            "title": "Parse a document into citable RAG chunks",
+            "description": "Chunk a document, read its quality flags, enable the right enhancement if needed, then deliver chunks with page+bbox citations.",
+            "arguments": [{ "name": "path", "description": "Local file path", "required": true }]
+        },
+        {
+            "name": "navigate-document",
+            "title": "Navigate a long document by structure",
+            "description": "Use the outline tree to drill into the relevant section instead of reading the whole document.",
+            "arguments": [{ "name": "path", "description": "Local file path", "required": true }]
+        }
+    ])
+}
+
+fn get_prompt(params: &Value) -> Result<Value, (i64, String)> {
+    let name = params.get("name").and_then(Value::as_str).unwrap_or("");
+    let path = params
+        .get("arguments")
+        .and_then(|a| a.get("path"))
+        .and_then(Value::as_str)
+        .unwrap_or("<path>");
+    let (description, text) = match name {
+        "parse-for-rag" => (
+            "Parse a document into citable RAG chunks, self-checking quality.",
+            format!(
+                "Prepare the document at `{path}` for retrieval:\n\
+                 1. Call `get_chunks` with `path: \"{path}\"` and no enhancement flags.\n\
+                 2. Read the envelope's `quality.flags`. If a flag appears, consult the resource \
+                 `docparse://guide/enhancement-decisions.md` and re-call `get_chunks` with the \
+                 single matching flag (e.g. `ocr: true` for `scanned_no_text`). At most 3 passes.\n\
+                 3. Deliver the resulting chunks — each carries `page`, `bbox`, and `heading_path` \
+                 for citation. State which flag (if any) was needed and any residual issue."
+            ),
+        ),
+        "navigate-document" => (
+            "Navigate a long document by its structure tree.",
+            format!(
+                "Explore the document at `{path}` by structure, not bulk:\n\
+                 1. Call `outline` with `path: \"{path}\"` and `max_depth: 1` to list top-level sections.\n\
+                 2. Pick the section relevant to the task and call `outline` again with its `id` to \
+                 see its subtree, or `get_chunks` and filter by `section_id` (it matches the outline id).\n\
+                 3. Cite findings with the section's `page`/`bbox`. For knowledge-base delivery, \
+                 use `export_okf` to get a git-native, citable bundle of the same tree."
+            ),
+        ),
+        _ => return Err((-32602, format!("unknown prompt: {name}"))),
+    };
+    Ok(json!({
+        "description": description,
+        "messages": [{ "role": "user", "content": { "type": "text", "text": text } }]
+    }))
 }
 
 /// Parse, then apply whatever enhancements the tool asked for (boolean
@@ -384,9 +592,124 @@ mod tests {
     fn initialize_and_list() {
         let r = result_of(&req("initialize", json!({"protocolVersion": "2025-03-26"})));
         assert_eq!(r["serverInfo"]["name"], "docparse");
+        // We echo the client's requested revision.
         assert_eq!(r["protocolVersion"], "2025-03-26");
+        // Capabilities now advertise resources + prompts alongside tools.
+        assert!(r["capabilities"]["resources"].is_object());
+        assert!(r["capabilities"]["prompts"].is_object());
         let tools = result_of(&req("tools/list", json!({})));
         assert_eq!(tools["tools"].as_array().unwrap().len(), 5);
+    }
+
+    #[test]
+    fn initialize_defaults_to_targeted_revision() {
+        let r = result_of(&req("initialize", json!({})));
+        assert_eq!(r["protocolVersion"], PROTOCOL_VERSION);
+    }
+
+    #[test]
+    fn structured_tools_advertise_output_schema() {
+        let tools = result_of(&req("tools/list", json!({})));
+        let by_name = |n: &str| {
+            tools["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|t| t["name"] == n)
+                .unwrap()
+                .clone()
+        };
+        // The always-structured tools carry an outputSchema...
+        for n in ["get_chunks", "outline", "export_okf", "locate"] {
+            assert!(by_name(n)["outputSchema"].is_object(), "{n} missing outputSchema");
+        }
+        // ...and the format-dependent one does not.
+        assert!(by_name("parse_document").get("outputSchema").is_none());
+    }
+
+    #[test]
+    fn get_chunks_returns_structured_content() {
+        let path = temp_html("docparse-mcp-structured.html");
+        let r = result_of(&req(
+            "tools/call",
+            json!({ "name": "get_chunks", "arguments": { "path": path } }),
+        ));
+        assert_eq!(r["isError"], false);
+        // structuredContent mirrors the text block, ready to validate against
+        // the tool's outputSchema.
+        let sc = &r["structuredContent"];
+        assert!(sc["chunks"].is_array());
+        assert!(sc["quality"]["coverage"].is_number());
+        let text: Value = serde_json::from_str(r["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(sc, &text, "structuredContent must equal the text body");
+    }
+
+    #[test]
+    fn locate_wraps_structured_content_as_match() {
+        let path = temp_html("docparse-mcp-locate.html");
+        let r = result_of(&req(
+            "tools/call",
+            json!({ "name": "locate",
+                    "arguments": { "path": path, "page": 99, "x": 0.0, "y": 0.0 } }),
+        ));
+        assert_eq!(r["isError"], false);
+        // No hit off-page → match is null, but still a valid object.
+        assert!(r["structuredContent"].is_object());
+        assert!(r["structuredContent"]["match"].is_null());
+    }
+
+    #[test]
+    fn resources_list_and_read() {
+        let r = result_of(&req("resources/list", json!({})));
+        let uris: Vec<String> = r["resources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x["uri"].as_str().unwrap().to_string())
+            .collect();
+        assert!(uris.contains(&"docparse://guide/enhancement-decisions.md".to_string()));
+        assert!(uris.contains(&"docparse://schema/chunk.json".to_string()));
+
+        // A guide reads back as non-empty markdown.
+        let guide = result_of(&req(
+            "resources/read",
+            json!({ "uri": "docparse://guide/enhancement-decisions.md" }),
+        ));
+        assert_eq!(guide["contents"][0]["mimeType"], "text/markdown");
+        assert!(!guide["contents"][0]["text"].as_str().unwrap().is_empty());
+
+        // A schema reads back as JSON Schema with the citation fields.
+        let schema = result_of(&req(
+            "resources/read",
+            json!({ "uri": "docparse://schema/chunk.json" }),
+        ));
+        let parsed: Value =
+            serde_json::from_str(schema["contents"][0]["text"].as_str().unwrap()).unwrap();
+        assert!(parsed["properties"]["bbox"].is_object());
+
+        // Unknown resource is a protocol error, not a crash.
+        let bad: Value = serde_json::from_str(
+            &handle_line(
+                &req("resources/read", json!({ "uri": "docparse://nope" })),
+                &state(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(bad["error"]["code"], -32602);
+    }
+
+    #[test]
+    fn prompts_list_and_get() {
+        let r = result_of(&req("prompts/list", json!({})));
+        assert_eq!(r["prompts"].as_array().unwrap().len(), 2);
+        let p = result_of(&req(
+            "prompts/get",
+            json!({ "name": "parse-for-rag", "arguments": { "path": "paper.pdf" } }),
+        ));
+        let msg = p["messages"][0]["content"]["text"].as_str().unwrap();
+        assert!(msg.contains("paper.pdf"), "prompt must weave in the path");
+        assert!(msg.contains("get_chunks"), "prompt must reference the tool");
     }
 
     #[test]

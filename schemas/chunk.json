@@ -1,0 +1,111 @@
+{
+  "$defs": {
+    "BBox": {
+      "description": "Axis-aligned bounding box in PDF user space (origin bottom-left).",
+      "properties": {
+        "x0": {
+          "format": "float",
+          "type": "number"
+        },
+        "x1": {
+          "format": "float",
+          "type": "number"
+        },
+        "y0": {
+          "format": "float",
+          "type": "number"
+        },
+        "y1": {
+          "format": "float",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+      ],
+      "type": "object"
+    },
+    "ChunkKind": {
+      "description": "What kind of content a chunk holds.",
+      "oneOf": [
+        {
+          "enum": [
+            "heading",
+            "paragraph",
+            "table"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "code",
+          "description": "A monospace code block (line breaks + indentation preserved).",
+          "type": "string"
+        },
+        {
+          "const": "list_item",
+          "description": "A list item (bullet/ordinal marker or LI tag).",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "A retrieval chunk with a precise source anchor.",
+  "properties": {
+    "bbox": {
+      "$ref": "#/$defs/BBox",
+      "description": "Union bounding box of the source content on `page` (PDF user space)."
+    },
+    "char_len": {
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "heading_path": {
+      "description": "Enclosing heading breadcrumb, outermost first (section context).",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "id": {
+      "description": "Stable sequential id within the document.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "kind": {
+      "$ref": "#/$defs/ChunkKind"
+    },
+    "page": {
+      "description": "Source page (1-based, as in the IR).",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "section_id": {
+      "default": 0,
+      "description": "Id of the enclosing [`crate::outline::Section`] (0 = before any heading /\ndocument root). Lets a consumer map a chunk back into the structure tree\nfor parent-document / auto-merging retrieval.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "text": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "text",
+    "page",
+    "bbox",
+    "heading_path",
+    "char_len"
+  ],
+  "title": "Chunk",
+  "type": "object"
+}

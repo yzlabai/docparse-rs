@@ -4,6 +4,7 @@ mod batch;
 mod mcp;
 mod progress;
 mod resources;
+mod schema;
 mod server;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -303,6 +304,18 @@ enum Command {
         /// Bearer token for the VLM service.
         #[arg(long)]
         vlm_api_key: Option<String>,
+    },
+    /// Print (or write) the machine-readable output contract: JSON Schema
+    /// (draft 2020-12) for every output format, generated from the code.
+    Schema {
+        /// Print only this schema (one of: document, chunk, outline, quality,
+        /// profile, okf-bundle). Default: a JSON object of all of them.
+        #[arg(long)]
+        name: Option<String>,
+        /// Write the schemas to `schemas/<name>.json` (the committed contract
+        /// files) instead of printing. Regenerates after a contract change.
+        #[arg(long)]
+        write: bool,
     },
 }
 
@@ -787,6 +800,7 @@ fn main() -> anyhow::Result<()> {
                     ),
                 )
             }
+            Command::Schema { name, write } => return schema::run(name.as_deref(), *write),
         }
     }
     if cli.inputs.is_empty() {

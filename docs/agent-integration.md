@@ -49,7 +49,7 @@
 
 ## 3. MCP 工具（`docparse mcp`）
 
-stdio 上的 JSON-RPC 2.0，四个工具：
+stdio 上的 JSON-RPC 2.0（协议 `2025-06-18`），五个工具：
 
 | 工具 | 作用 | 必填参数 |
 |---|---|---|
@@ -69,9 +69,14 @@ docparse mcp \
   --unirec-models models/unirec
 ```
 
-Claude Code / 兼容运行时把它登记为 stdio MCP server 即可调用上面四个工具。
+Claude Code / 兼容运行时把它登记为 stdio MCP server 即可调用上面五个工具。
 
 **导航式检索示例**（agent 翻书）：`outline {path, max_depth:1}` 拿顶层目录 → `outline {path, id:12}` 钻取第 12 节子树 → `get_chunks` 后按 `section_id==12` 取该节切块。
+
+**自描述（无需外部文档即可上手）**：
+- **`outputSchema` + `structuredContent`**：`get_chunks`/`outline`/`export_okf`/`locate` 都声明输出 JSON Schema，调用结果除文本块外还带 `structuredContent`（与文本同源的结构化 JSON），client 可直接按 schema 校验/取类型。
+- **`resources/*`**：列举并读取①六个输出 schema（`docparse://schema/<name>.json`）②两份使用指南（`docparse://guide/agent-integration.md`、`docparse://guide/enhancement-decisions.md`——后者是"看 `quality.flags` → 该开哪个增强"的决策矩阵）。
+- **`prompts/*`**：两个现成模板 `parse-for-rag`（带质量自检循环）、`navigate-document`（按结构钻取），传 `path` 即用。
 
 ## 4. REST（`docparse serve`）
 
@@ -79,7 +84,9 @@ Claude Code / 兼容运行时把它登记为 stdio MCP server 即可调用上面
 docparse serve --port 8642            # 绑 127.0.0.1
 ```
 
-- `GET /healthz` — 存活探针。
+- `GET /healthz` — 存活探针（回 `name`/`version`/`schema_version`）。
+- `GET /openapi.json` — OpenAPI 3.1 自描述文档，`components.schemas` 内嵌全部输出 schema；外部项目据此 codegen 客户端。
+- `GET /schema/{name}` — 单个输出 JSON Schema（`document`/`chunk`/`outline`/`quality`/`profile`/`okf-bundle`），draft 2020-12。
 - `POST /parse?format=json|markdown|text|chunks|outline|okf` — **multipart** 上传文件字段，返回对应格式（`outline` = 文档结构树，section id 对齐 chunks 的 `section_id`；`okf` = 确定性 OKF tar bundle，`application/x-tar`，可加 `?resource_base=<uri>`）。
   增强用查询参数：`?ocr=true&layout=true&table_model=true&formula_model=true&vlm_describe=true&vlm_tables=true`（同样需启动时配模型，见 §5）。
 - `format=chunks` 可加 `?envelope=true`：把裸 chunk 数组包成 `{provenance, quality, profile, chunks}`（同 MCP `get_chunks`）。RAG 消费方可据 `quality.flags`（`ScannedNoText` / `HighGarble` 等）和 `profile` 自行决定要不要对该文档开 OCR/layout，**省一次往返**。默认（不加）仍是裸数组，与 CLI 逐字节一致。
@@ -131,6 +138,23 @@ CLI 子进程或 REST 批量；`--profile`（页级复杂度画像）/ `--report
 ```python
 from docparse_client import DocparseClient
 docs = DocparseClient().chunks("paper.pdf")   # [{id,kind,text,page,bbox,heading_path}, ...]
+```
+
+## 6b. 机器可读契约（schema / OpenAPI）
+
+不用读本文档手抄字段——契约是机器可读的，且**由代码生成**（schemars 从产出 JSON 的同一批 serde 类型派生），所以永不漂移。
+
+- **离线拿 schema**：`docparse schema` 打印全部输出 schema（JSON 对象，按名字索引）；`docparse schema --name chunk` 取单个；`docparse schema --write` 刷新仓库内的 `schemas/*.json`（已入库，可直接 `curl` raw 文件）。
+- **入库的 schema 文件**：[`schemas/`](../schemas/) —— `document` / `chunk` / `outline` / `quality` / `profile` / `okf-bundle`，draft 2020-12，可喂 `datamodel-codegen`(Python)、`quicktype`(TS/Go…) 生成类型，或在 agent 侧做响应校验。
+- **REST 自描述**：`GET /openapi.json`（OpenAPI 3.1，component 即上述 schema）+ `GET /schema/{name}`。
+- **MCP 自描述**：每个结构化工具的 `outputSchema` + `resources/*` 暴露的 `docparse://schema/<name>.json`——三面同源同名。
+- **防漂移**：golden 测试断言 `schemas/*.json` 等于代码当前生成结果；改了输出契约就跑 `docparse schema --write` 重生并提交。
+
+```bash
+docparse schema --name chunk > chunk.schema.json
+datamodel-codegen --input chunk.schema.json --output models.py   # Python 类型
+# 或服务化：
+curl -s localhost:8642/openapi.json | jq '.components.schemas | keys'
 ```
 
 ## 7. 支持格式

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 /// A reason the deterministic parse may be insufficient.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum QualityFlag {
     /// Pages exist but no text was extracted — almost certainly a scan needing OCR.
@@ -30,6 +31,7 @@ pub enum QualityFlag {
 
 /// A computed quality read on a [`Document`]. Serializable for CLI/observability.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct QualityReport {
     pub pages: usize,
     /// Pages with at least one text chunk.
@@ -278,6 +280,7 @@ mod tests {
 /// What a page fundamentally is — the complexity-profile signal (module 9,
 /// N5c) that routing and operators consume. Derived purely from the IR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum PageKind {
     /// Text layer present, no page-covering raster — the fast path.
@@ -293,6 +296,7 @@ pub enum PageKind {
 /// Per-page complexity profile. Cheap to compute, explainable, serializable —
 /// feeds routing decisions and the agent-facing quality envelope.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct PageProfile {
     pub page: usize,
     pub kind: PageKind,

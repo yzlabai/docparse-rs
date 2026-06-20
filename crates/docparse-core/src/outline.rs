@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 /// node (`id` 0, `level` 0, empty `title`) whose `children` are the top-level
 /// sections; every other node is a heading and the content beneath it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Section {
     /// Stable id = heading appearance order in reading order (root = 0). Chunks
     /// reference this via [`crate::chunk::Chunk::section_id`].

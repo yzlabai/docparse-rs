@@ -13,3 +13,9 @@ encoding_rs.workspace = true
 chardetng.workspace = true
 rayon.workspace = true
 libc.workspace = true
+schemars = { workspace = true, optional = true }
+
+[features]
+# Compile the JSON Schema derives + `schema::all()` exporter. Off by default so
+# pure-library/embedding consumers don't pull schemars; the CLI enables it.
+schema = ["dep:schemars"]

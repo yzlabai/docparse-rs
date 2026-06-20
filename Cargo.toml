@@ -34,6 +34,11 @@ homepage = "https://github.com/yzlabai/docparse-rs"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Machine-readable contract (2026-06-20): derive JSON Schema (draft 2020-12) from
+# the same serde types, so the output contract has one source of truth (the code)
+# and external agents can codegen/validate. Optional `schema` feature on core —
+# pure-library embedders that don't export schemas never compile it.
+schemars = "1"
 rayon = "1"
 lopdf = "0.41"
 clap = { version = "4", features = ["derive"] }

@@ -40,6 +40,10 @@ fn router(state: crate::EnhanceState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/parse", post(parse))
+        // Self-describing contract for external agents: the OpenAPI document and
+        // the individual output JSON Schemas (same source as `docparse schema`).
+        .route("/openapi.json", get(openapi))
+        .route("/schema/{name}", get(schema_one))
         // Real PDFs run tens of MB; axum's 2MB default would reject them.
         .layer(DefaultBodyLimit::max(256 * 1024 * 1024))
         .with_state(Arc::new(state))
@@ -53,6 +57,141 @@ async fn healthz() -> Response {
     })
     .to_string();
     ([(header::CONTENT_TYPE, "application/json")], body).into_response()
+}
+
+/// `GET /schema/{name}` — one output JSON Schema (draft 2020-12), e.g.
+/// `/schema/chunk`. The name set matches `docparse schema` and the
+/// `components.schemas` keys in `/openapi.json`.
+async fn schema_one(axum::extract::Path(name): axum::extract::Path<String>) -> Response {
+    match docparse_core::schema::by_name(&name) {
+        Some(schema) => (
+            [(header::CONTENT_TYPE, "application/schema+json")],
+            serde_json::to_string_pretty(&schema).unwrap_or_default(),
+        )
+            .into_response(),
+        None => err(
+            StatusCode::NOT_FOUND,
+            &format!("unknown schema: {name} (see GET /openapi.json)"),
+        ),
+    }
+}
+
+/// `GET /openapi.json` — an OpenAPI 3.1 document describing the two endpoints,
+/// with every output JSON Schema injected under `components.schemas`. Hand-
+/// assembled (the surface is tiny) so the response stays a plain value and we
+/// don't pull a second derive framework. The component schemas are generated
+/// from the code, so they never drift from the actual output.
+async fn openapi() -> Response {
+    (
+        [(header::CONTENT_TYPE, "application/json")],
+        serde_json::to_string_pretty(&openapi_doc()).unwrap_or_default(),
+    )
+        .into_response()
+}
+
+/// Build the OpenAPI 3.1 document. Pure function (no I/O) so a test can assert
+/// its shape without binding a socket.
+fn openapi_doc() -> serde_json::Value {
+    use serde_json::json;
+    // OpenAPI 3.1 uses JSON Schema draft 2020-12 — the same dialect schemars
+    // emits — so the component schemas drop in directly.
+    let mut components = serde_json::Map::new();
+    for s in docparse_core::schema::all() {
+        components.insert(s.name.to_string(), s.schema);
+    }
+    // Shared enhancement toggles, expressed once and referenced per endpoint.
+    let bool_param = |name: &str, about: &str| {
+        json!({
+            "name": name, "in": "query", "required": false,
+            "schema": { "type": "boolean" }, "description": about
+        })
+    };
+    json!({
+        "openapi": "3.1.0",
+        "info": {
+            "title": "docparse",
+            "version": env!("CARGO_PKG_VERSION"),
+            "x-schema-version": docparse_core::ir::SCHEMA_VERSION,
+            "description": "Pure-Rust document parser. Same output as the CLI and MCP faces \
+                            (byte-identical for a given input + format)."
+        },
+        "paths": {
+            "/healthz": {
+                "get": {
+                    "summary": "Liveness + version/schema info.",
+                    "responses": { "200": { "description": "Service info JSON." } }
+                }
+            },
+            "/openapi.json": {
+                "get": { "summary": "This document.", "responses": { "200": { "description": "OpenAPI 3.1." } } }
+            },
+            "/schema/{name}": {
+                "get": {
+                    "summary": "One output JSON Schema.",
+                    "parameters": [{
+                        "name": "name", "in": "path", "required": true,
+                        "schema": { "type": "string",
+                                    "enum": ["document", "chunk", "outline", "quality", "profile", "okf-bundle"] }
+                    }],
+                    "responses": { "200": { "description": "JSON Schema (draft 2020-12)." },
+                                   "404": { "description": "Unknown schema name." } }
+                }
+            },
+            "/parse": {
+                "post": {
+                    "summary": "Parse an uploaded document.",
+                    "parameters": [
+                        json!({
+                            "name": "format", "in": "query", "required": false,
+                            "schema": { "type": "string",
+                                        "enum": ["json", "markdown", "text", "chunks", "outline", "okf"],
+                                        "default": "json" },
+                            "description": "Output format. json→document schema, chunks→array of chunk, \
+                                            outline→outline schema, okf→application/x-tar bundle."
+                        }),
+                        bool_param("envelope", "chunks only: wrap the array as {provenance,quality,profile,chunks}."),
+                        json!({ "name": "table_format", "in": "query", "required": false,
+                                "schema": { "type": "string", "enum": ["tab", "markdown"] },
+                                "description": "chunks only: table chunk rendering." }),
+                        json!({ "name": "resource_base", "in": "query", "required": false,
+                                "schema": { "type": "string" }, "description": "okf only: concept resource URI prefix." }),
+                        bool_param("ocr", "OCR scanned pages (needs server --ocr-models)."),
+                        bool_param("layout", "Layout-model reading order (PDF only; needs --layout-model)."),
+                        bool_param("table_model", "UniRec table structure (needs --unirec-models)."),
+                        bool_param("formula_model", "Display formulas to LaTeX (needs --unirec-models)."),
+                        bool_param("vlm_describe", "VLM figure captions (needs --vlm-url/--vlm-model)."),
+                        bool_param("vlm_tables", "VLM table re-extraction.")
+                    ],
+                    "requestBody": {
+                        "required": true,
+                        "content": { "multipart/form-data": { "schema": {
+                            "type": "object",
+                            "properties": { "file": { "type": "string", "format": "binary" } },
+                            "required": ["file"]
+                        } } }
+                    },
+                    "responses": {
+                        "200": {
+                            "description": "Parsed output (media type depends on format).",
+                            "content": {
+                                "application/json": { "schema": { "oneOf": [
+                                    { "$ref": "#/components/schemas/document" },
+                                    { "type": "array", "items": { "$ref": "#/components/schemas/chunk" } },
+                                    { "$ref": "#/components/schemas/outline" }
+                                ] } },
+                                "text/markdown": { "schema": { "type": "string" } },
+                                "text/plain": { "schema": { "type": "string" } },
+                                "application/x-tar": { "schema": { "type": "string", "format": "binary" } }
+                            }
+                        },
+                        "422": { "description": "Parse failed (unprocessable document)." },
+                        "400": { "description": "Bad request (no file field / bad multipart)." }
+                    }
+                }
+            }
+        },
+        "components": { "schemas": components }
+    })
 }
 
 async fn parse(
@@ -381,5 +520,29 @@ mod tests {
         assert_eq!(sanitize("../../etc/passwd"), "passwd");
         assert_eq!(sanitize("report.pdf"), "report.pdf");
         assert_eq!(sanitize(""), "upload");
+    }
+
+    #[test]
+    fn openapi_doc_describes_endpoints_and_embeds_schemas() {
+        let doc = openapi_doc();
+        assert_eq!(doc["openapi"], "3.1.0");
+        // Every output schema is embedded under components and reusable via $ref.
+        let comps = &doc["components"]["schemas"];
+        for name in ["document", "chunk", "outline", "quality", "profile", "okf-bundle"] {
+            assert!(comps.get(name).is_some(), "missing component {name}");
+        }
+        // The embedded component is the real generated schema, not a stub.
+        assert_eq!(
+            comps["chunk"],
+            docparse_core::schema::by_name("chunk").unwrap()
+        );
+        // The two endpoints and the contract routes are documented.
+        let paths = &doc["paths"];
+        assert!(paths["/parse"]["post"].is_object());
+        assert!(paths["/schema/{name}"]["get"].is_object());
+        // A consumer can read /parse's response media types.
+        assert!(paths["/parse"]["post"]["responses"]["200"]["content"]
+            ["application/x-tar"]
+            .is_object());
     }
 }

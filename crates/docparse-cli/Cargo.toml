@@ -12,7 +12,7 @@ name = "docparse"
 path = "src/main.rs"
 
 [dependencies]
-docparse-core = { path = "../docparse-core" }
+docparse-core = { path = "../docparse-core", features = ["schema"] }
 docparse-pdf = { path = "../docparse-pdf" }
 docparse-docx = { path = "../docparse-docx" }
 docparse-html = { path = "../docparse-html" }
