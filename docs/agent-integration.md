@@ -140,6 +140,14 @@ from docparse_client import DocparseClient
 docs = DocparseClient().chunks("paper.pdf")   # [{id,kind,text,page,bbox,heading_path}, ...]
 ```
 
+### F. TypeScript / Node 集成
+`clients/typescript/`（docparse-client，零运行时依赖）：子进程包 CLI、`fetch`+`FormData` 包 REST，两传输同形输出；自带 **LangChain.js `DocumentLoader`**（`docparse-client/langchain`，每 chunk 一个带 `page`/`bbox`/`heading_path`/`section_id`/`kind` metadata 的 Document）与 **Vercel AI SDK 工具**（`docparse-client/ai`，`docparseTools()` → `get_chunks`/`outline`/`parse_markdown`）。
+
+```ts
+import { DocparseClient } from 'docparse-client';
+const chunks = await new DocparseClient().chunks('paper.pdf');   // [{id,kind,text,page,bbox,heading_path,section_id}, ...]
+```
+
 ## 6b. 机器可读契约（schema / OpenAPI）
 
 不用读本文档手抄字段——契约是机器可读的，且**由代码生成**（schemars 从产出 JSON 的同一批 serde 类型派生），所以永不漂移。
