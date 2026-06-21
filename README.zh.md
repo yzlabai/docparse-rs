@@ -121,7 +121,7 @@ ln -s "$(pwd)/skills/docparse-document-intelligence" .claude/skills/   # 或 ~/.
 | 公式 → LaTeX | `--formula-model`，论文 | **0.874** |
 | 表结构 | `--table-model`，clean 表 | **0.810**（median 0.895） |
 
-**文本与公式已接近论文级（~0.87）。** 剩下的缺口是难学术表（多级表头 + 密集数字 + 含 LaTeX）。代理口径的 "Overall" ≈ 75，落在管线工具档（Marker 78、Docling ~80–85；专用 VLM 90+）——[完整方法、边界与 leaderboard →](docs/testresults/2026-06-12-omnidocbench.md)。
+**文本与公式已接近论文级（~0.87）。** 剩下的缺口是难学术表（多级表头 + 密集数字 + 含 LaTeX）。代理口径的 "Overall" ≈ 75，落在管线工具档（Marker 78、Docling ~80–85；专用 VLM 90+）——[记分牌与方法 →](docs/status.md)。
 
 ## 🆚 与同类对比
 
@@ -164,7 +164,7 @@ Cargo workspace，**17 个 crate**。核心不变量：**`core` 不依赖任何 
 |---|---|---|
 | `ocr` → `models/ppocr/`（~16 MB） | PP-OCRv4 det+rec+cls（`SWHL/RapidOCR`） | `--ocr` 扫描件文字、自动转正 |
 | `layout` → `models/layout/`（~75 MB） | DocLayout-YOLO（`wybxc/DocLayout-YOLO-DocStructBench-onnx`） | `--layout` 版面区域（默认）、公式检出 |
-| `ppv2` → `models/layout-ppv2/`（~210 MB） | PP-DocLayoutV2（`topdu/PP_DoclayoutV2_onnx`） | 更丰富版面 + 原生读序（[A/B](docs/testresults/2026-06-15-ppv2-vs-yolo-omnidocbench.md)） |
+| `ppv2` → `models/layout-ppv2/`（~210 MB） | PP-DocLayoutV2（`topdu/PP_DoclayoutV2_onnx`） | 更丰富版面 + 原生读序（杂版面表 ≈3× YOLO） |
 | `unirec` → `models/unirec/`（~700 MB） | UniRec-0.1B（`topdu/unirec_0_1b_onnx`） | `--table-model` / `--formula-model` / `--transcribe-model` |
 
 > UniRec 与 PP-DocLayoutV2 是 [OpenOCR](https://github.com/Topdu/OpenOCR) **OpenDoc-0.1B** 的两半；我们用纯 Rust `tract` 运行其官方 ONNX，再用自己的确定性核心拼接。[选型理由 →](docs/refer/openocr-0.1b-evaluation.md)

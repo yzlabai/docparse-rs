@@ -13,7 +13,7 @@
 //!   → TextChunks in PDF user space (pixel coords mapped through the image's
 //!   placement bbox), `source: "ocr:ppocr"`, confidence < 1.
 //!
-//! Model files (see docs/plans/n3-real-enhancer.md): a `*det*.onnx`, a
+//! Model files: a `*det*.onnx`, a
 //! `*rec*.onnx`, and the char dict (either a `*dict*.txt`, or `character_dict`
 //! parsed from a `*rec*.yml` for PP-OCRv6). paddle2onnx dim names contain dots
 //! tract can't parse (sanitized in-memory), and PP-OCRv6's export bakes a

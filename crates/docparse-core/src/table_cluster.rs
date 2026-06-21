@@ -10,8 +10,7 @@
 //! Algorithm referenced from veraPDF-wcag-algs `ClusterTableConsumer` /
 //! `TableRecognitionArea` / `TableRecognizer` / `TableUtils` / `Table` and
 //! `ChunksMergeUtils`; **independently reimplemented** (Apache-2.0, no GPL code,
-//! no StaticContainers global state). See
-//! `docs/plans/cluster-table-recognizer-rust.md` for the verbatim spec.
+//! no StaticContainers global state).
 //!
 //! Scope = **P1a**: the clean-table path. Each body cell must be x-contained by
 //! exactly one header column, else the area is rejected. The two "attraction"

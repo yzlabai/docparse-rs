@@ -18,11 +18,11 @@
 
 补丁内容都在调用点用 `docparse PATCH` 注释标出。完整根因分析见
 [docs/analysis/2026-06-14-why-tract-cant-run-pp-doclayoutv2.md](../docs/analysis/2026-06-14-why-tract-cant-run-pp-doclayoutv2.md);
-落地计划见 [docs/plans/ppv2-layout-via-tract-patch.md](../docs/plans/ppv2-layout-via-tract-patch.md)。
+决策论证见 [docs/analysis/2026-06-14-vendored-tract-patch-on-main.md](../docs/analysis/2026-06-14-vendored-tract-patch-on-main.md)。
 
 ## 2. 为什么需要(背景)
 
-PP-DocLayoutV2 质量明显优于现役 DocLayout-YOLO(25 类语义 + 原生阅读顺序;**杂版面端到端表识别 ≈3×**,见 [记分牌 A/B](../docs/testresults/2026-06-15-ppv2-vs-yolo-omnidocbench.md))。它此前"跑不了 tract"被深挖证明只是 tract 0.23.1 的两个具体 bug:
+PP-DocLayoutV2 质量明显优于现役 DocLayout-YOLO(25 类语义 + 原生阅读顺序;**杂版面端到端表识别 ≈3×**,见 [status.md 记分牌](../docs/status.md))。它此前"跑不了 tract"被深挖证明只是 tract 0.23.1 的两个具体 bug:
 
 1. **`tract-hir` GatherNd 推断**:输出尾维错误地约束到 indices 张量,应为 data(一行 bug;typed 层 `compute_shape` 本是对的)。
 2. **`tract-core` TopK 收 TDim**:`tract-onnx` 把 `Cast(to=INT64)` 映射成 TDim,RT-DETR 的 int64 掩码喂进 TopK 即 `"TDim is not a number"`;补丁在 eval 加 TDim→i64 旁路。

@@ -2,7 +2,7 @@
 //! inputs dumped by scripts/spike/ppv2/golden.py and print boxes>0.5 sorted by
 //! reading order, for numeric comparison vs the ONNX-Runtime golden
 //! (scripts/spike/ppv2/compare.py). Guards the vendored tract patches +
-//! the model export against regressions. See docs/plans/ppv2-layout-via-tract-patch.md.
+//! the model export against regressions. See vendor/README.md + docs/analysis/.
 //! Usage: cargo run --release -p docparse-ocr --example ppv2_run -- <model.onnx> [spike_dir]
 use tract_onnx::prelude::*;
 

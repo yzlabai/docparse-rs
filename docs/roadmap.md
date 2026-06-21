@@ -164,7 +164,7 @@ flowchart TB
 | **P1** | 文本保真与版面可读 | 数字 PDF 文本接近无损；输出按段落/表格可读，而非逐行 | 2,3 | ✅ 已完成（M1–M3）|
 | **P2** | 语义结构 + 多格式 | 输出是**结构**（表格/列表/标题层级）而非纯文本流；覆盖 DOCX/HTML | 4,5 | ✅ 基本完成（M4 有框表格 + M5 DOCX/HTML；表格四检测器 bordered→ruled→**cluster**→borderless，确定性检出达 ODL 量级；多级表头/无框结构属 N3 神经域）|
 | **P3** | Agent 接入与 AI 增强 | 成为任意 agent 可直接调用的**完整系统**：稳定 IR 协议、引用定位、服务化接口（REST/MCP）；难例可插拔接入 OCR/LLM；质量回退、安全预检 | 1,6,7,8,9,10 | ✅ 完成（M2 IR 脊梁、M6 切块溯源、M7 质量路由、N1 评测、N2 服务化 REST+MCP、N5 安全预检、N3 真实 enhancer ONNX-OCR）|
-| **P4** | 选择性模型内嵌 | 稳定小模型（页面分类/方向/轻量 OCR）以 ONNX 内嵌提速；大 VLM 仍外接 | 8 | ✅ 已随 N3 落地（RapidOCR PP-OCRv4 × `tract` 纯 Rust，模型外部文件；spike 与实现见 [plans/n3-real-enhancer.md](plans/n3-real-enhancer.md)）|
+| **P4** | 选择性模型内嵌 | 稳定小模型（页面分类/方向/轻量 OCR）以 ONNX 内嵌提速；大 VLM 仍外接 | 8 | ✅ 已随 N3 落地（RapidOCR PP-OCRv4 × `tract` 纯 Rust，模型外部文件；spike 与实现）|
 
 **各阶段大致内容（高层，细节见对应 plan）：**
 
@@ -173,13 +173,13 @@ flowchart TB
 - **P3** — IR 版本化 + provenance；结构化切块与 chunk↔bbox 溯源；面向 agent 的服务化接口（REST/gRPC/MCP）；质量评分与失败页可插拔回退到外接 OCR/LLM；版本化插件协议；安全预检与复杂度画像/路由。
 - **P4** — 把已稳定的小模型转 ONNX 用 `ort`/Candle 在 Rust worker 内推理，评估纯 Rust/Metal 部署；重型、迭代快的模型保持外部服务。
 
-> **可执行里程碑（M1–M7）与依赖次序**见 [plans/beating-docling.md](plans/beating-docling.md)：它把上面 P0–P4 按竞争杠杆细化为带验收的里程碑，并据 §3"先定契约"把 **IR 脊梁（版本化 + provenance）从 P3 提前到紧跟 P1**——便宜且解锁所有溯源/切块/路由。
+> **可执行里程碑（M1–M7）与依赖次序**：它把上面 P0–P4 按竞争杠杆细化为带验收的里程碑，并据 §3"先定契约"把 **IR 脊梁（版本化 + provenance）从 P3 提前到紧跟 P1**——便宜且解锁所有溯源/切块/路由。
 
 ---
 
 ## 6. 记分牌：怎么证明"更好"（可证伪）
 
-不立指标的"更好"是口号。采用两类记分牌，每个阶段/里程碑完成都回填数字（落 `docs/testresults/`）。
+不立指标的"更好"是口号。采用两类记分牌，每个阶段/里程碑完成都回填数字（落 status.md 记分牌 + devlog）。
 
 **质量记分牌（对标 Docling，同尺）**——复用 ODL benchmark 三项指标，只在 **born-digital 子集**上同台，扫描件**显式弃权**并记录（那不是我们的战场，§2）：
 
@@ -201,7 +201,7 @@ flowchart TB
 | 吞吐（born-digital） | 页/秒 vs Docling 标准管线 | 显著领先（目标 ≥10×，待测） |
 | 引用可定位率 | 每个输出 chunk 能否回指 bbox | 100% chunk 带 provenance |
 
-> 记分牌即验收门：没有数字的阶段不算完成（SDD §4）。可执行里程碑与逐项验收见 [plans/beating-docling.md](plans/beating-docling.md)。
+> 记分牌即验收门：没有数字的阶段不算完成（SDD §4）。可执行里程碑与逐项验收。
 
 ---
 
@@ -228,4 +228,4 @@ flowchart TD
   Q -->|供 agent/RAG 调用| E[P3: 服务化接口 + 切块溯源 + AI 可插拔增强]
 ```
 
-**进度真源是 [status.md](status.md)**（逐 Phase 维护，远比本节实时）：P0–P4 + 后续 Phase 5–14（扫描解码/版面双后端/PP-OCRv6/CLI 进度与批量/速度质量三杠杆/结构树/OKF/机器可读契约/图片→RAG）均已下结论。阶段计划见 [plans/](plans/)，过程记录见 [devlogs/](devlogs/)，能力清单见 [capabilities.md](capabilities.md)。本节不再复述进度，避免与 status.md 漂移。
+**进度真源是 [status.md](status.md)**（逐 Phase 维护，远比本节实时）：P0–P4 + 后续 Phase 5–14（扫描解码/版面双后端/PP-OCRv6/CLI 进度与批量/速度质量三杠杆/结构树/OKF/机器可读契约/图片→RAG）均已下结论。过程记录见 [devlogs/](devlogs/)，能力清单见 [capabilities.md](capabilities.md)。本节不再复述进度，避免与 status.md 漂移。

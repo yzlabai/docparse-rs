@@ -92,7 +92,7 @@ docparse doc.pdf  --transcribe-model models/unirec           # full-page transcr
 docparse doc.pdf  --vlm-describe --vlm-url URL --vlm-model M # figure captions via an OpenAI-compatible VLM (written onto each image chunk)
 docparse doc.pdf  --vlm-tables   --vlm-url URL --vlm-model M # VLM table re-extraction (failures keep the deterministic grid)
 docparse doc.pdf  --image-dir imgs/ -f chunks               # export images + emit them as RAG image chunks (caption + context, file/bbox)
-docparse doc.pdf  --image-dir imgs/                          # export embedded images (JSON "file" / Markdown ![alt]())
+docparse doc.pdf  --image-dir imgs/                          # export embedded images (JSON "file" / Markdown ![alt])
 docparse input.pdf --quality --profile --route-plan          # quality / per-page profile / routing (JSON on stderr)
 ```
 </details>
@@ -111,13 +111,13 @@ curl -F "file=@doc.pdf" "http://127.0.0.1:8642/parse?format=chunks&ocr=true"
 ```python
 # Python / LangChain (clients/python — zero-dependency thin client)
 from docparse_client.langchain import DocparseLoader
-docs = DocparseLoader("paper.pdf").load()   # one Document per chunk, page + bbox metadata
+docs = DocparseLoader("paper.pdf").load   # one Document per chunk, page + bbox metadata
 ```
 
 ```ts
 // TypeScript / Node (clients/typescript — zero-dependency, LangChain.js + Vercel AI SDK adapters)
 import { DocparseClient } from 'docparse-client';
-const chunks = await new DocparseClient().chunks('paper.pdf');   // text + page + bbox + breadcrumb
+const chunks = await new DocparseClient.chunks('paper.pdf');   // text + page + bbox + breadcrumb
 ```
 
 **Agent Skill** — a [SKILL.md](skills/docparse-document-intelligence/SKILL.md) bundle that teaches a coding agent (Claude Code / Cursor) to drive the `docparse` CLI: format selection, OCR/table/formula decision matrix, and a parse → self-check (`--quality`/`--profile`) → refine loop. Symlink it where the agent looks for skills:
@@ -155,7 +155,7 @@ Scored on **[OmniDocBench](https://github.com/opendatalab/OmniDocBench)** (CVPR 
 | Formula → LaTeX | `--formula-model`, papers | **0.874** |
 | Table structure | `--table-model`, clean tables | **0.810** (median 0.895) |
 
-**Text and formula are near paper-level (~0.87).** The remaining gap is hard academic tables (multi-row headers + dense numbers + embedded LaTeX). A proxy "Overall" ≈ 75 puts us in the pipeline-tool tier (Marker 78, Docling ~80–85; dedicated VLMs 90+) — see the [full method, caveats & leaderboard →](docs/testresults/2026-06-12-omnidocbench.md).
+**Text and formula are near paper-level (~0.87).** The remaining gap is hard academic tables (multi-row headers + dense numbers + embedded LaTeX). A proxy "Overall" ≈ 75 puts us in the pipeline-tool tier (Marker 78, Docling ~80–85; dedicated VLMs 90+) — see the [scoreboard & method →](docs/status.md).
 
 ## 🆚 vs related tools
 
@@ -170,7 +170,7 @@ Scored on **[OmniDocBench](https://github.com/opendatalab/OmniDocBench)** (CVPR 
 | Hard pages | opt-in embedded models (table/formula/CJK) | none (by design) | neural layout | rule-based | none |
 | Speed (born-digital) | **<10 ms / ~700 pg/s** | fast | seconds/page | fast | fast |
 
-**Closest peer — liteparse** (run-llama, also Rust + deterministic + bbox-first): the design philosophies overlap, the tradeoffs differ. liteparse wraps **PDFium** for PDF text, bundles **Tesseract**, and converts DOCX/XLSX/PPTX/images through **LibreOffice + ImageMagick** — so it carries native C++ deps and external tools, where docparse-rs is a single zero-dependency binary with its own from-scratch PDF interpreter and in-process parsers for all 12 formats. **liteparse wins on reach:** WASM/browser builds, first-class Node/Python bindings, `npm`/`pip`/`cargo install`, and Tesseract's broad multi-language OCR out of the box (docparse-rs OCR is zh/en-focused). **docparse-rs adds** Markdown + RAG-chunk output with heading breadcrumbs and bidirectional `locate()`, plus opt-in embedded models (merged-cell tables, formula→LaTeX, CJK/full-page transcription) that liteparse deliberately omits to stay light.
+**Closest peer — liteparse** (run-llama, also Rust + deterministic + bbox-first): the design philosophies overlap, the tradeoffs differ. liteparse wraps **PDFium** for PDF text, bundles **Tesseract**, and converts DOCX/XLSX/PPTX/images through **LibreOffice + ImageMagick** — so it carries native C++ deps and external tools, where docparse-rs is a single zero-dependency binary with its own from-scratch PDF interpreter and in-process parsers for all 12 formats. **liteparse wins on reach:** WASM/browser builds, first-class Node/Python bindings, `npm`/`pip`/`cargo install`, and Tesseract's broad multi-language OCR out of the box (docparse-rs OCR is zh/en-focused). **docparse-rs adds** Markdown + RAG-chunk output with heading breadcrumbs and bidirectional `locate`, plus opt-in embedded models (merged-cell tables, formula→LaTeX, CJK/full-page transcription) that liteparse deliberately omits to stay light.
 
 Where the others win: Docling's neural layout has a higher ceiling on the hardest layouts and a more mature ecosystem; MarkItDown covers more long-tail formats; we ship no GPU pipeline, and non-zh/en OCR (RTL / Korean …) isn't covered yet. [Detailed comparison →](docs/refer/docling-objective-comparison.md)
 
@@ -203,7 +203,7 @@ Needs the HuggingFace CLI (`pip install -U huggingface_hub`); `ppv2` additionall
 | `ppocr-v6` → `models/ppocr-v6/` (~7 MB) | PP-OCRv6 tiny det+rec (`PaddlePaddle/PP-OCRv6_tiny_*_onnx`) | `--ocr` scanned text (**default**), auto-deskew |
 | `ocr` → `models/ppocr/` (~16 MB) | PP-OCRv4 det+rec+cls (`SWHL/RapidOCR`) | `--ocr` v4 fallback |
 | `layout` → `models/layout/` (~75 MB) | DocLayout-YOLO (`wybxc/DocLayout-YOLO-DocStructBench-onnx`) | `--layout` regions (default), formula detection |
-| `ppv2` → `models/layout-ppv2/` (~210 MB) | PP-DocLayoutV2 (`topdu/PP_DoclayoutV2_onnx`) | richer layout + native reading order ([A/B](docs/testresults/2026-06-15-ppv2-vs-yolo-omnidocbench.md)) |
+| `ppv2` → `models/layout-ppv2/` (~210 MB) | PP-DocLayoutV2 (`topdu/PP_DoclayoutV2_onnx`) | richer layout + native reading order (~3× YOLO on messy tables) |
 | `unirec` → `models/unirec/` (~700 MB) | UniRec-0.1B (`topdu/unirec_0_1b_onnx`) | `--table-model` / `--formula-model` / `--transcribe-model` |
 
 > **PP-OCRv6** (PaddleOCR, 2026-06) is the default OCR tier: on a real Chinese scan it's more accurate than the previous PP-OCRv4 mobile (e.g. fixes a 顿号 `、` misread), ~2× faster, and ~half the size — at 1.5 M params. Same DB-detection + CTC-recognition interface as v4/v5, so it drops into the existing pipeline; tract reads the raw export directly. [Evaluation →](docs/refer/ppocr-v6-evaluation.md)

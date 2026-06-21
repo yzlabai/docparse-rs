@@ -18,13 +18,13 @@ scripts/eval/score.py --selftest
 差异化记分牌（无需 GT，可直接跑）：
 
 ```bash
-scripts/metrics.sh > docs/testresults/<date>-differentiation-metrics.md
+scripts/metrics.sh > docs/devlogs/<date>-differentiation-metrics.md
 ```
 
 ## 当前状态
 
 - ✅ **评分算法 + 提取器就绪**，合成自检通过。
-- ✅ **差异化指标已回填**（体积/延迟/吞吐/确定性/引用率），见 `docs/testresults/`。
+- ✅ **差异化指标已回填**（体积/延迟/吞吐/确定性/引用率），见 `docs/devlogs/`。
 - ⛔ **质量记分牌（NID/TEDS/MHS）未回填**，受阻于：
   1. **无 Docling 实例**（Python + 模型下载）做对照；
   2. **无 born-digital 标注集**（阅读顺序/表格/标题 ground truth）。

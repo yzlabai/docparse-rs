@@ -1,6 +1,6 @@
 # 分析:为什么 tract 跑不了 PP-DocLayoutV2,以及要支持需要怎么做(2026-06-14)
 
-> 承接 [testresults/2026-06-14-ppv2-tract-gate-and-unirec-alignment.md](../testresults/2026-06-14-ppv2-tract-gate-and-unirec-alignment.md)。
+> 背景：PP-DocLayoutV2 上车 tract 的探查（评测细节见当时 devlog；结论已并入 [status.md](../status.md) Phase 7）。
 > 上一轮结论是"非 drop-in、上车成本 > UniRec"。本轮**钻到 tract 源码层逐行定位根因**,结论需要**重大修正**:挡路的**不是模型架构、不是缺算子**,而是 **tract 0.23.1 对 RT-DETR 动态检测头几个算子的具体 bug / 短板**。其中**头号坎(GatherNd)是一行 bug,已打补丁验证 → 全图能 optimize**;但后面还有第二道(TopK 吃到 TDim 数据)更难的坎。
 > 证据:tract 源码 `~/.cargo/.../tract-{hir,core}-0.23.1/`;诊断 `examples/diag.rs` + `ppv2_run.rs`(spike 临时,已删);打补丁的 `vendor/tract-hir`(spike 临时,已删)。
 

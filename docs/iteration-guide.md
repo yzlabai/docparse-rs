@@ -37,14 +37,14 @@ PageInput { content: Vec<u8>, fonts: HashMap<String,FontInfo>, w, h }
    ▼  rayon par_iter（CPU 密集，页间无共享）
 interpret(&PageInput)                            [interpreter.rs]
    │  操作符状态机：矩阵栈 + 文本状态
-   │  show 文本时 → font.decode() → (text, advance)
+   │  show 文本时 → font.decode → (text, advance)
    ▼
 Page { elements: Vec<Element::Text(TextChunk{text,bbox,font_size})> }
    ▼
 Document                                          [docparse-core/ir.rs]
    │
-   ├─ reading_order()  递归 XY-cut                [reading_order.rs]
-   └─ output::to_*()   行/词重建 + 序列化          [output.rs]
+   ├─ reading_order  递归 XY-cut                [reading_order.rs]
+   └─ output::to_*   行/词重建 + 序列化          [output.rs]
 ```
 
 **关键不变量**：
@@ -86,7 +86,7 @@ Document                                          [docparse-core/ir.rs]
 
 ### C. 加一个新文件格式
 1. `cargo new --lib crates/docparse-docx`，依赖 `docparse-core`。
-2. `impl DocumentParser for DocxParser`：`supports()` 看扩展名/magic，`parse()` 产出 `Document`（坐标按 PDF 约定折算，无真实坐标时用合成布局）。
+2. `impl DocumentParser for DocxParser`：`supports` 看扩展名/magic，`parse` 产出 `Document`（坐标按 PDF 约定折算，无真实坐标时用合成布局）。
 3. `cli/main.rs`：`parsers` 注册表里加 `Box::new(DocxParser)`。
 4. 阅读顺序/输出**自动复用**，无需改 `core`。
 
@@ -104,7 +104,7 @@ Document                                          [docparse-core/ir.rs]
 
 ## 5. 路线图与进度
 
-本文不再内置路线图清单（曾经的 M1–M7 待办已全部完成，PPTX/XLSX、图片抽取、服务化、真实 enhancer 等均已落地）。**当前进度、记分牌、待办的单一真源是 [status.md](status.md)**；战略/愿景见 [roadmap.md](roadmap.md)；已实现能力清单见 [capabilities.md](capabilities.md)；阶段计划见 [plans/](plans/)，过程记录见 [devlogs/](devlogs/)。
+本文不再内置路线图清单（曾经的 M1–M7 待办已全部完成，PPTX/XLSX、图片抽取、服务化、真实 enhancer 等均已落地）。**当前进度、记分牌、待办的单一真源是 [status.md](status.md)**；战略/愿景见 [roadmap.md](roadmap.md)；已实现能力清单见 [capabilities.md](capabilities.md)；过程记录见 [devlogs/](devlogs/)。
 
 挑下一步：想量化质量→评测集 + NID/TEDS/MHS；想拓能力→看 status.md 的「待续」；想补难例→新增 `Enhancer` 接入 `core::enhance` 边界。
 

@@ -1,7 +1,7 @@
 # CLI 进度可视化与批量解析
 
 > docparse CLI 的两项体验功能:**实时进度/速度可视化** 与 **文件夹/多文件批量解析 + 聚合报告**。
-> 实现见 [devlogs/2026-06-18-cli-progress-and-batch.md](devlogs/2026-06-18-cli-progress-and-batch.md);需求分析见 [plans/cli-progress-visualization.md](plans/cli-progress-visualization.md)。
+> 实现见 [devlogs/2026-06-18-cli-progress-and-batch.md](devlogs/2026-06-18-cli-progress-and-batch.md)。
 
 ## 1. 进度与速度可视化
 
@@ -178,7 +178,7 @@ DOCPARSE_OCR_PARALLELISM=4 docparse scan.pdf --ocr     # 钉死 4 页并行
 
 ## 4. 已知限制
 
-> 这些都已排进下一轮迭代计划 [plans/cli-experience-iteration.md](plans/cli-experience-iteration.md)。
+> 这些都已排进下一轮迭代计划。
 
 - **模型整批只载一次**(已处理):OCR、UniRec、版面(`--layout`/`--formula-model`/`--transcribe-model`)模型在一次批量里**只加载一次**并复用(惰性,不带 flag 永不加载);服务端(MCP/REST)也改为每服务只载一次。
 - **递归不跟随符号链接目录**(已处理):`-r` 不进入符号链接指向的目录(避免符号链接环无限递归爆栈);符号链接文件仍纳入。如需跟随,后续 `--follow-symlinks`(计划 I2 已修部分)。

@@ -9,7 +9,7 @@ upstream PR is planned for now.** Rationale, maintenance-on-tract-bump, and
 when-to-drop are in [vendor/README.md](README.md). Ready-to-file PR drafts are
 kept in [UPSTREAM-PRS.md](UPSTREAM-PRS.md) in case we change our mind.
 
-Plan: [docs/plans/ppv2-layout-via-tract-patch.md](../docs/plans/ppv2-layout-via-tract-patch.md).
+Decision & rationale: [docs/analysis/2026-06-14-vendored-tract-patch-on-main.md](../docs/analysis/2026-06-14-vendored-tract-patch-on-main.md).
 Root cause analysis: [docs/analysis/2026-06-14-why-tract-cant-run-pp-doclayoutv2.md](../docs/analysis/2026-06-14-why-tract-cant-run-pp-doclayoutv2.md).
 
 Each fix below is bracketed with a `docparse PATCH` comment at the call site.
