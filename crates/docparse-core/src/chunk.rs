@@ -369,7 +369,7 @@ pub fn chunk_document_with(doc: &Document, opts: ChunkOptions) -> Vec<Chunk> {
                     let (caption, caption_source) = match (&im.caption, &im.caption_source) {
                         (Some(c), src) => (Some(c.clone()), src.clone()),
                         _ => find_caption(blocks, im)
-                            .map(|c| (Some(c), Some("caption-line".to_string())))
+                            .map(|(c, s)| (Some(c), Some(s.to_string())))
                             .unwrap_or((None, None)),
                     };
                     let context = find_context(blocks, im);
@@ -474,28 +474,38 @@ fn v_gap(b: &BBox, im: &BBox) -> f32 {
     }
 }
 
-/// Index into `blocks` of the adjacent in-document caption line for an image,
-/// if any: the nearest horizontally-overlapping caption-shaped block within
-/// [`IMAGE_ADJ_GAP`].
+/// Whether a block reads as this image's caption: a layout-model / tagged-PDF
+/// `Caption` block (precise), or a "Figure N" text-pattern block (zero-model
+/// fallback). Headings never count.
+fn block_is_caption(b: &Block) -> bool {
+    !b.heading && (b.caption || is_caption_line(&b.text))
+}
+
+/// Index into `blocks` of the adjacent in-document caption for an image, if any:
+/// the nearest horizontally-overlapping caption block within [`IMAGE_ADJ_GAP`].
 fn find_caption_idx(blocks: &[Block], im: &ImageChunk) -> Option<usize> {
     blocks
         .iter()
         .enumerate()
-        .filter(|(_, b)| {
-            b.page == im.page
-                && !b.heading
-                && h_overlap(&b.bbox, &im.bbox)
-                && is_caption_line(&b.text)
-        })
+        .filter(|(_, b)| b.page == im.page && block_is_caption(b) && h_overlap(&b.bbox, &im.bbox))
         .map(|(i, b)| (v_gap(&b.bbox, &im.bbox), i))
         .filter(|(g, _)| *g <= IMAGE_ADJ_GAP)
         .min_by(|(g1, _), (g2, _)| g1.partial_cmp(g2).unwrap_or(std::cmp::Ordering::Equal))
         .map(|(_, i)| i)
 }
 
-/// The adjacent in-document caption text for an image, if any.
-fn find_caption(blocks: &[Block], im: &ImageChunk) -> Option<String> {
-    find_caption_idx(blocks, im).map(|i| truncate(blocks[i].text.trim(), IMAGE_CONTEXT_CHARS))
+/// The adjacent in-document caption for an image: its text + provenance
+/// (`"layout-caption"` for a model/tagged Caption block, else `"caption-line"`
+/// for a "Figure N" text match).
+fn find_caption(blocks: &[Block], im: &ImageChunk) -> Option<(String, &'static str)> {
+    find_caption_idx(blocks, im).map(|i| {
+        let source = if blocks[i].caption {
+            "layout-caption"
+        } else {
+            "caption-line"
+        };
+        (truncate(blocks[i].text.trim(), IMAGE_CONTEXT_CHARS), source)
+    })
 }
 
 /// Surrounding prose context for an image: adjacent horizontally-overlapping
@@ -506,10 +516,7 @@ fn find_context(blocks: &[Block], im: &ImageChunk) -> Option<String> {
     let mut cands: Vec<(f32, &Block)> = blocks
         .iter()
         .filter(|b| {
-            b.page == im.page
-                && !b.heading
-                && h_overlap(&b.bbox, &im.bbox)
-                && !is_caption_line(&b.text)
+            b.page == im.page && !b.heading && h_overlap(&b.bbox, &im.bbox) && !block_is_caption(b)
         })
         .map(|b| (v_gap(&b.bbox, &im.bbox), b))
         .filter(|(g, _)| *g <= IMAGE_ADJ_GAP)
@@ -920,6 +927,50 @@ mod tests {
         let meta = img.image.as_ref().unwrap();
         assert_eq!(meta.caption_source.as_deref(), Some("vlm:test-model"));
         assert!(img.text.contains("bar chart"));
+    }
+
+    #[test]
+    fn layout_caption_region_binds_without_figure_prefix() {
+        // A caption with NO "Figure N" text prefix, tagged `Caption` by the
+        // layout model (or a tagged PDF). The text pattern wouldn't match it;
+        // the Caption tag must bind it, with provenance "layout-caption".
+        let img_bb = BBox {
+            x0: 72.0,
+            y0: 450.0,
+            x1: 472.0,
+            y1: 650.0,
+        };
+        let cap_bb = BBox {
+            x0: 72.0,
+            y0: 434.0,
+            x1: 472.0,
+            y1: 446.0,
+        };
+        let cap = Element::Text(TextChunk {
+            text: "System overview diagram".into(),
+            bbox: cap_bb,
+            font_size: 10.0,
+            font: None,
+            page: 1,
+            confidence: 1.0,
+            bold: false,
+            hidden: false,
+            source: None,
+            group: None,
+            tag: Some("Caption".into()),
+        });
+        let chunks = chunk_document(&doc(vec![image_el(img_bb, 1), cap]));
+        let img = chunks
+            .iter()
+            .find(|c| c.kind == ChunkKind::Image)
+            .expect("image chunk");
+        let meta = img.image.as_ref().unwrap();
+        assert_eq!(meta.caption.as_deref(), Some("System overview diagram"));
+        assert_eq!(meta.caption_source.as_deref(), Some("layout-caption"));
+        // The caption is folded into the image, not emitted as its own prose.
+        assert!(!chunks
+            .iter()
+            .any(|c| c.kind == ChunkKind::Paragraph && c.text.contains("System overview")));
     }
 
     #[test]

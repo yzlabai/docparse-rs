@@ -83,11 +83,14 @@ impl RegionKind {
         matches!(self, RegionKind::Title | RegionKind::SubTitle)
     }
     /// Structure role for tagging text chunks (cf. tagged-PDF "H1".."H6"/"P"),
-    /// flowing the model's semantics into output. `None` = no heading role.
+    /// flowing the model's semantics into output. `None` = no recognized role.
+    /// `Caption` tags the figure/table caption so downstream (figure chunking)
+    /// can bind it to its image without relying on a "Figure N" text prefix.
     fn tag_role(self) -> Option<&'static str> {
         match self {
             RegionKind::Title => Some("H1"),
             RegionKind::SubTitle => Some("H2"),
+            RegionKind::Caption => Some("Caption"),
             _ => None,
         }
     }

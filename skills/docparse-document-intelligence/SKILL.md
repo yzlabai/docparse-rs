@@ -132,7 +132,8 @@ docparse report.pdf -f chunks   -o /tmp/report.chunks.json
   `text` carries the caption + surrounding context (the searchable field), and an
   `image` object carries `{ file?, data_base64?, media_type?, caption?, caption_source? }`
   for rendering & citation. Caption binds the adjacent "Figure N" line for free
-  (`caption_source: "caption-line"`), or the HTML `alt` text (`"alt"`);
+  (`caption_source: "caption-line"`), a layout-model/tagged `Caption` region
+  (`"layout-caption"`, with `--layout`), or the HTML `alt` text (`"alt"`);
   `--vlm-describe` writes a neural description (`"vlm:<model>"`). Pass
   `--image-dir <dir>` (or `--image-embed`) so the chunk's `image.file`/
   `data_base64` is populated for the consumer to display. (HTML resolves

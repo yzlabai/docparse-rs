@@ -88,6 +88,13 @@ fn list_marker_len(text: &str) -> Option<usize> {
     }
 }
 
+/// Whether a tag marks a figure/table caption — set by the layout model
+/// (`RegionKind::Caption`) or a tagged PDF's `Caption` role. Lets figure
+/// chunking bind a caption to its image without a "Figure N" text prefix.
+fn is_caption_tag(tag: Option<&str>) -> bool {
+    tag == Some("Caption")
+}
+
 /// Roles that are author-declared NOT-headings (paragraphs, figures,
 /// captions, table/list content). Containers like Span/Div carry no signal.
 fn is_nonheading_tag(tag: Option<&str>) -> bool {
@@ -160,6 +167,9 @@ pub struct Line {
     pub tagged_body: bool,
     /// True when the line carries a list structure tag (LI/LBody/Lbl).
     pub tag_list: bool,
+    /// True when the line carries a `Caption` role (layout model / tagged PDF)
+    /// — a figure/table caption, used to bind it to its image (G-figures).
+    pub caption: bool,
 }
 
 /// A body block: a paragraph or a heading, after grouping lines. Carries page +
@@ -177,6 +187,9 @@ pub struct Block {
     /// A monospace code block (≥2 mono lines); `text` preserves line breaks
     /// and geometric indentation. Renders fenced in Markdown.
     pub code: bool,
+    /// A figure/table caption (layout model `Caption` region or tagged-PDF
+    /// `Caption` role) — used to bind a caption to its image during chunking.
+    pub caption: bool,
     pub page: usize,
     pub bbox: BBox,
 }
@@ -243,6 +256,7 @@ fn reconstruct_lines_inner(chunks: &[&TextChunk]) -> Vec<Line> {
                 line.tagged_body = line.tagged_body || is_nonheading_tag(c.tag.as_deref());
                 line.tag_list =
                     line.tag_list || matches!(c.tag.as_deref(), Some("LI" | "LBody" | "Lbl"));
+                line.caption = line.caption || is_caption_tag(c.tag.as_deref());
             }
             _ => {
                 if let Some(line) = cur.take() {
@@ -261,6 +275,7 @@ fn reconstruct_lines_inner(chunks: &[&TextChunk]) -> Vec<Line> {
                     tag_level: heading_tag_level(c.tag.as_deref()),
                     tagged_body: is_nonheading_tag(c.tag.as_deref()),
                     tag_list: matches!(c.tag.as_deref(), Some("LI" | "LBody" | "Lbl")),
+                    caption: is_caption_tag(c.tag.as_deref()),
                 });
             }
         }
@@ -401,6 +416,7 @@ struct Acc {
     tag_level: Option<u8>,
     tagged_body: bool,
     list_item: bool,
+    caption: bool,
     /// Per-line (x0, text) — kept for code blocks, whose reassembly needs
     /// line breaks and geometric indentation instead of paragraph joining.
     raw: Vec<(f32, String)>,
@@ -428,6 +444,7 @@ impl Acc {
             tag_level: line.tag_level,
             tagged_body: line.tagged_body,
             list_item: line.tag_list || list_marker_len(&line.text).is_some(),
+            caption: line.caption,
             raw: vec![(line.x0, text2)],
         }
     }
@@ -460,6 +477,7 @@ impl Acc {
         self.form = self.form && line.form;
         self.tag_level = self.tag_level.or(line.tag_level);
         self.tagged_body = self.tagged_body || line.tagged_body;
+        self.caption = self.caption || line.caption;
         self.raw.push((line.x0, text.to_string()));
         self.x0_min = self.x0_min.min(line.x0);
         self.x1_max = self.x1_max.max(line.x1);
@@ -679,6 +697,7 @@ fn make_block(a: Acc, body_size: f32) -> Block {
             level: 0,
             list_item: false,
             code: true,
+            caption: a.caption,
             page: a.page,
             bbox: BBox {
                 x0: a.x0_min,
@@ -722,6 +741,7 @@ fn make_block(a: Acc, body_size: f32) -> Block {
         level: if heading { a.tag_level.unwrap_or(0) } else { 0 },
         list_item: a.list_item && !heading,
         code: false,
+        caption: a.caption && !heading,
         page: a.page,
         bbox: BBox {
             x0: a.x0_min,
@@ -875,6 +895,7 @@ mod tests {
             tag_level: None,
             tagged_body: false,
             tag_list: false,
+            caption: false,
         }
     }
 
@@ -900,6 +921,7 @@ mod tests {
             tag_level: None,
             tagged_body: false,
             tag_list: false,
+            caption: false,
         }
     }
 
@@ -1027,6 +1049,7 @@ mod tests {
             tag_level: None,
             tagged_body: false,
             tag_list: false,
+            caption: false,
         };
         let lines = vec![
             mk("fn main() {", 100.0, 0.0),
@@ -1246,6 +1269,7 @@ mod level_tests {
             level,
             list_item: false,
             code: false,
+            caption: false,
             page: 1,
             bbox: BBox {
                 x0: 0.0,
@@ -1305,6 +1329,7 @@ mod list_tests {
             tag_level: None,
             tagged_body: false,
             tag_list: false,
+            caption: false,
         };
         let lines = vec![mk("• first item", 100.0), mk("• second item", 88.0)];
         let blocks = group_blocks(&lines, 10.0, &vec![90.0; lines.len()]);
