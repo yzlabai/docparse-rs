@@ -461,6 +461,8 @@ mod profile_tests {
             file: None,
             data_base64: None,
             data_media_type: None,
+            caption: None,
+            caption_source: None,
         })
     }
 

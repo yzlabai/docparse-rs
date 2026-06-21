@@ -48,8 +48,54 @@
           "const": "list_item",
           "description": "A list item (bullet/ordinal marker or LI tag).",
           "type": "string"
+        },
+        {
+          "const": "image",
+          "description": "A figure/picture. Its `text` carries the caption + surrounding context\nfor retrieval; render/audit data lives in [`Chunk::image`].",
+          "type": "string"
         }
       ]
+    },
+    "ImageMeta": {
+      "description": "Render/audit payload for an [`ChunkKind::Image`] chunk. Kept separate from\nthe flat retrieval fields so non-image chunks serialize without it\n(`skip_serializing_if`). The chunk's `text` already holds the searchable\ncaption+context; these fields let a consumer display and cite the image.",
+      "properties": {
+        "caption": {
+          "description": "Figure caption alone (also folded into the chunk's `text`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "caption_source": {
+          "description": "Where the caption came from (`\"caption-line\"`, `\"vlm:<model>\"`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "data_base64": {
+          "description": "Base64 payload when embedded output was requested (`--image-embed`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "file": {
+          "description": "Path the image was exported to (`--image-dir`), if any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "media_type": {
+          "description": "MIME type of `data_base64`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -76,6 +122,17 @@
       "format": "uint",
       "minimum": 0,
       "type": "integer"
+    },
+    "image": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ImageMeta"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Present only on [`ChunkKind::Image`] chunks: how to render and cite the\nfigure. `None` for text/table chunks."
     },
     "kind": {
       "$ref": "#/$defs/ChunkKind"

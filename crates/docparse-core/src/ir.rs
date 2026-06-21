@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 /// Version of this IR schema. Bumped when the serialized shape changes so an
 /// agent consuming the JSON can check compatibility. Semantic versioning.
-pub const SCHEMA_VERSION: &str = "0.7.0";
+pub const SCHEMA_VERSION: &str = "0.8.0";
 
 /// Where a [`Document`] came from: which parser/version produced it, under
 /// which schema. The agent-facing trust/repro anchor (one per document; an
@@ -161,6 +161,17 @@ pub struct ImageChunk {
     /// for re-encoded raw bitmaps).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_media_type: Option<String>,
+    /// Figure caption / description — the text that makes this image findable
+    /// in RAG retrieval. Filled deterministically from an adjacent caption line
+    /// at chunking time, or by the VLM enhancer (`--vlm`) which writes a neural
+    /// description here. `None` when no caption was found. See `caption_source`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
+    /// Provenance of `caption`: `"caption-line"` (an adjacent in-document
+    /// caption), `"vlm:<model>"` (neural description). Per the project's "近似
+    /// 必须标注" rule, every non-deterministic/derived value names its source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption_source: Option<String>,
 }
 
 /// One cell of a [`Table`].

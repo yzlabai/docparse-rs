@@ -84,6 +84,8 @@ pub fn parse_bytes(bytes: &[u8], ext: &str) -> anyhow::Result<Document> {
             file: None,
             data_base64: None,
             data_media_type: None,
+            caption: None,
+            caption_source: None,
         })],
     };
     Ok(Document {

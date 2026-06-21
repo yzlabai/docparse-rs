@@ -456,6 +456,8 @@ fn exec_content(
                         file: None,
                         data_base64: None,
                         data_media_type: None,
+                        caption: None,
+                        caption_source: None,
                     }));
                 } else if let Some(form) = ctx.forms.get(&n) {
                     if depth < MAX_FORM_DEPTH {

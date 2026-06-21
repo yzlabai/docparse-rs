@@ -109,6 +109,20 @@
         "bbox": {
           "$ref": "#/$defs/BBox"
         },
+        "caption": {
+          "description": "Figure caption / description — the text that makes this image findable\nin RAG retrieval. Filled deterministically from an adjacent caption line\nat chunking time, or by the VLM enhancer (`--vlm`) which writes a neural\ndescription here. `None` when no caption was found. See `caption_source`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "caption_source": {
+          "description": "Provenance of `caption`: `\"caption-line\"` (an adjacent in-document\ncaption), `\"vlm:<model>\"` (neural description). Per the project's \"近似\n必须标注\" rule, every non-deterministic/derived value names its source.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "data_base64": {
           "description": "Base64 payload when embedded output was requested (`--image-embed` /\n`images=embedded`); [`ImageChunk::data_media_type`] names the format.",
           "type": [
