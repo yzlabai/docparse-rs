@@ -119,7 +119,14 @@ mod tests {
         let names: Vec<&str> = all().iter().map(|s| s.name).collect();
         assert_eq!(
             names,
-            ["document", "chunk", "outline", "quality", "profile", "okf-bundle"]
+            [
+                "document",
+                "chunk",
+                "outline",
+                "quality",
+                "profile",
+                "okf-bundle"
+            ]
         );
         for s in all() {
             assert!(s.schema.is_object(), "{} schema must be an object", s.name);
@@ -145,7 +152,10 @@ mod tests {
         let doc = by_name("document").expect("document schema");
         let defs = &doc["$defs"];
         let image = &defs["ImageChunk"]["properties"];
-        assert!(image.get("data").is_none(), "ImageChunk.data must be skipped");
+        assert!(
+            image.get("data").is_none(),
+            "ImageChunk.data must be skipped"
+        );
         assert!(image.get("bbox").is_some());
     }
 }

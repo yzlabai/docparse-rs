@@ -528,7 +528,14 @@ mod tests {
         assert_eq!(doc["openapi"], "3.1.0");
         // Every output schema is embedded under components and reusable via $ref.
         let comps = &doc["components"]["schemas"];
-        for name in ["document", "chunk", "outline", "quality", "profile", "okf-bundle"] {
+        for name in [
+            "document",
+            "chunk",
+            "outline",
+            "quality",
+            "profile",
+            "okf-bundle",
+        ] {
             assert!(comps.get(name).is_some(), "missing component {name}");
         }
         // The embedded component is the real generated schema, not a stub.
@@ -541,8 +548,8 @@ mod tests {
         assert!(paths["/parse"]["post"].is_object());
         assert!(paths["/schema/{name}"]["get"].is_object());
         // A consumer can read /parse's response media types.
-        assert!(paths["/parse"]["post"]["responses"]["200"]["content"]
-            ["application/x-tar"]
-            .is_object());
+        assert!(
+            paths["/parse"]["post"]["responses"]["200"]["content"]["application/x-tar"].is_object()
+        );
     }
 }

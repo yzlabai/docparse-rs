@@ -71,10 +71,7 @@ mod tests {
         for s in docparse_core::schema::all() {
             let path = dir.join(format!("{}.json", s.name));
             let on_disk = std::fs::read_to_string(&path).unwrap_or_else(|_| {
-                panic!(
-                    "missing {} — run `docparse schema --write`",
-                    path.display()
-                )
+                panic!("missing {} — run `docparse schema --write`", path.display())
             });
             assert_eq!(
                 on_disk,

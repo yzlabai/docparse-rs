@@ -224,7 +224,11 @@ fn tool_specs() -> Value {
     // its output is json *or* markdown/text depending on the `format` argument.
     if let Some(arr) = tools.as_array_mut() {
         for t in arr.iter_mut() {
-            let name = t.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
+            let name = t
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned();
             if let (Some(schema), Some(obj)) = (output_schema_for(&name), t.as_object_mut()) {
                 obj.insert("outputSchema".to_string(), schema);
             }
@@ -621,7 +625,10 @@ mod tests {
         };
         // The always-structured tools carry an outputSchema...
         for n in ["get_chunks", "outline", "export_okf", "locate"] {
-            assert!(by_name(n)["outputSchema"].is_object(), "{n} missing outputSchema");
+            assert!(
+                by_name(n)["outputSchema"].is_object(),
+                "{n} missing outputSchema"
+            );
         }
         // ...and the format-dependent one does not.
         assert!(by_name("parse_document").get("outputSchema").is_none());
