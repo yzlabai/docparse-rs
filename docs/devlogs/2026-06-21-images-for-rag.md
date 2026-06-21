@@ -40,4 +40,29 @@
 
 **测试**：output 3 个新单测（alt 文本、caption-only 斜体行、无 file 无 caption 不渲染）。全绿，clippy/fmt 通过。注：`annotate_pictures` 本身需 raster+网络，沿用既有惯例不单测（与 `refine_tables` 一致），契约由 chunk/output 层单测锁定。
 
-## 提交 3：DOCX 抽图（待续）
+## 提交 3：DOCX 抽图
+
+**docx-rs 探查**：`Docx.images: Vec<(rId, path, Image(bytes), Png)>` 公开；`RunChild::Drawing(Box<Drawing>)` → `DrawingData::Pic(Pic)`，`Pic.id` 是 `r:embed` 的 rId、`Pic.size` 是 EMU。default feature 启用 `image` crate，故元组 `.2`（`Image`）是**原始字节**（png/jpeg/…），mime 由 path 后缀定。
+
+**改动**
+- [ir.rs](../../crates/docparse-core/src/ir.rs)：新增 `ImageKind::Encoded` —— 已编码图片字节透传（DOCX/PPTX/HTML 媒体共用的形态），`data_media_type` 记格式。schema 重新生成。
+- [main.rs](../../crates/docparse-cli/src/main.rs)：`export_images`/`embed_images` 支持 `Encoded`（字节原样写盘/base64，扩展名/mime 由 `mime_ext`/`data_media_type` 决定）。
+- [synth.rs](../../crates/docparse-core/src/synth.rs)：`PageBuilder::image(data, w_pt, h_pt, media_type)` —— 按当前流位置放合成 bbox 的 `Element::Image`（坐标合成，守 PDF 用户空间不变量）。
+- [docx/lib.rs](../../crates/docparse-docx/src/lib.rs)：遍历段落 run 的 drawing → Pic，按 rId 查 `docx.images` 取字节，EMU→pt（`/12700`），mime 由 path 后缀，落到 `PageBuilder::image`。
+
+**范围**：段落内（inline/anchored）图片已覆盖；**表格单元格内的图片暂不处理**（TODO）。
+
+**测试**
+- 单测：drawing→ImageChunk（kind=Encoded、原始字节、image/png、EMU→pt 尺寸）。
+- 真实端到端：python-docx 造含图 docx → `docparse -f chunks --image-dir`：得 1 个 image chunk，caption "Figure 1: …" 由邻接段落绑定、context 来自前后正文、PNG 经 Encoded 透传导出 `p1-1.png`。
+
+## 收口
+
+- 全量 `cargo test` 全绿（34 套）、`cargo clippy --all-targets` 零 warning、`cargo fmt` 通过。
+- 文本三件套（lorem/bialetti/1901）回归未变。
+- schema：`SCHEMA_VERSION` 0.7.0→0.8.0；`ImageChunk` 加 caption/caption_source、`ImageKind` 加 Encoded、`Chunk` 加 image —— 均为**新增可选字段/枚举变体，向后兼容**。
+
+## 后续（计划里"不做什么"或新发现）
+
+- 表格单元格内图片、PPTX/HTML 抽图（同 `PageBuilder::image` + `Encoded` 模式可加）。
+- 版面模型 `RegionKind::Caption` 区域绑定（当前 caption 走文本 pattern + 邻接；模型路径需把 tag 透到 Block 层）。

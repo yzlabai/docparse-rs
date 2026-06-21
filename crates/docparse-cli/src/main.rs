@@ -654,6 +654,21 @@ impl EnhanceState {
 /// reference it. Returns the number of files written. Position-only images
 /// (unsupported encodings, below the size gate) are skipped — they keep their
 /// bbox in JSON for audit, same as before.
+/// File extension for an already-encoded image's MIME type (default `bin`).
+fn mime_ext(mime: Option<&str>) -> &'static str {
+    match mime {
+        Some("image/png") => "png",
+        Some("image/jpeg") => "jpg",
+        Some("image/gif") => "gif",
+        Some("image/bmp") => "bmp",
+        Some("image/tiff") => "tiff",
+        Some("image/webp") => "webp",
+        Some("image/x-emf") | Some("image/emf") => "emf",
+        Some("image/x-wmf") | Some("image/wmf") => "wmf",
+        _ => "bin",
+    }
+}
+
 fn export_images(
     doc: &mut docparse_core::ir::Document,
     dir: &std::path::Path,
@@ -670,6 +685,12 @@ fn export_images(
             }
             let (ext, bytes) = match img.kind {
                 ImageKind::Jpeg => ("jpg", std::mem::take(&mut img.data)),
+                // Already-encoded media (DOCX/PPTX/HTML): write bytes verbatim,
+                // deriving the extension from the source MIME type.
+                ImageKind::Encoded => (
+                    mime_ext(img.data_media_type.as_deref()),
+                    std::mem::take(&mut img.data),
+                ),
                 ImageKind::Rgb8 => (
                     "png",
                     docparse_vlm::encode_png_rgb(&img.data, img.width_px, img.height_px),
@@ -710,22 +731,29 @@ pub(crate) fn embed_images(doc: &mut docparse_core::ir::Document) -> usize {
                 continue;
             }
             let (mime, bytes) = match img.kind {
-                ImageKind::Jpeg => ("image/jpeg", img.data.clone()),
+                ImageKind::Jpeg => ("image/jpeg".to_string(), img.data.clone()),
+                // Already-encoded media: embed bytes as-is under their source MIME.
+                ImageKind::Encoded => (
+                    img.data_media_type
+                        .clone()
+                        .unwrap_or_else(|| "application/octet-stream".to_string()),
+                    img.data.clone(),
+                ),
                 ImageKind::Rgb8 => (
-                    "image/png",
+                    "image/png".to_string(),
                     docparse_vlm::encode_png_rgb(&img.data, img.width_px, img.height_px),
                 ),
                 ImageKind::Gray8 => {
                     let rgb: Vec<u8> = img.data.iter().flat_map(|&g| [g, g, g]).collect();
                     (
-                        "image/png",
+                        "image/png".to_string(),
                         docparse_vlm::encode_png_rgb(&rgb, img.width_px, img.height_px),
                     )
                 }
                 ImageKind::None => continue,
             };
             img.data_base64 = Some(b64.encode(bytes));
-            img.data_media_type = Some(mime.to_string());
+            img.data_media_type = Some(mime);
             n += 1;
         }
     }

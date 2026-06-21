@@ -201,6 +201,11 @@
           "const": "jpeg",
           "description": "Undecoded JPEG file bytes (DCTDecode passthrough).",
           "type": "string"
+        },
+        {
+          "const": "encoded",
+          "description": "Already-encoded image file bytes in some other format (PNG/GIF/… — the\nshape DOCX/PPTX/HTML media arrive in). [`ImageChunk::data_media_type`]\nnames the format; export/embed pass `data` through verbatim.",
+          "type": "string"
         }
       ]
     },

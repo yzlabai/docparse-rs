@@ -8,7 +8,7 @@
 //! unchanged. Coordinates are an honest fabrication — useful for relative
 //! ordering and citation anchoring, not for fidelity to any real page.
 
-use crate::ir::{BBox, Cell, Element, Page, Table, TextChunk};
+use crate::ir::{BBox, Cell, Element, ImageChunk, ImageKind, Page, Table, TextChunk};
 
 /// Flows logical blocks onto synthetic pages.
 pub struct PageBuilder {
@@ -126,6 +126,51 @@ impl PageBuilder {
             tag,
         }));
         self.y -= lh + Self::PARA_SPACING * size;
+    }
+
+    /// Add an already-encoded image (PNG/JPEG/… `data`) at the current flow
+    /// position. `width_pt`/`height_pt` are the on-page size (converted from the
+    /// source's EMU/px by the backend), capped to the content box. `media_type`
+    /// is the source MIME (drives export/embed). Empty `data` is skipped.
+    /// Coordinates are synthetic — useful for ordering/citation, not fidelity.
+    pub fn image(
+        &mut self,
+        data: Vec<u8>,
+        width_pt: f32,
+        height_pt: f32,
+        media_type: impl Into<String>,
+    ) {
+        if data.is_empty() {
+            return;
+        }
+        let content_w = self.width - 2.0 * self.margin;
+        let content_h = self.height - 2.0 * self.margin;
+        let w = width_pt.clamp(1.0, content_w);
+        let h = height_pt.clamp(1.0, content_h);
+        self.ensure(h);
+        let y1 = self.y;
+        let y0 = self.y - h;
+        self.cur.push(Element::Image(ImageChunk {
+            bbox: BBox {
+                x0: self.margin,
+                y0,
+                x1: self.margin + w,
+                y1,
+            },
+            page: self.page_no,
+            // px dims unknown (we don't decode); export passes the bytes through.
+            width_px: 0,
+            height_px: 0,
+            turns: 0,
+            kind: ImageKind::Encoded,
+            data,
+            file: None,
+            data_base64: None,
+            data_media_type: Some(media_type.into()),
+            caption: None,
+            caption_source: None,
+        }));
+        self.y = y0 - Self::PARA_SPACING * 12.0;
     }
 
     /// Add a table from row-major cell text (every cell 1×1). Thin wrapper over

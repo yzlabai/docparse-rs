@@ -5,13 +5,17 @@
 //! coordinates, so geometry is fabricated under the PDF convention and the
 //! shared reading-order/output layers take over. Heading levels come from the
 //! paragraph style name ("Heading1" …); tables map straight to `Table`.
+//!
+//! Inline/anchored images (`w:drawing` → `a:blip r:embed`) are resolved through
+//! `docx.images` (rId → media bytes) and flowed onto the synthetic page as
+//! `ImageChunk`s, so they become first-class image chunks for RAG.
 
 use docparse_core::ir::{Document, Page, Provenance};
 use docparse_core::parser::DocumentParser;
 use docparse_core::synth::{PageBuilder, SpanCell};
 use docx_rs::{
-    DocumentChild, Docx, Level, Numberings, Paragraph, ParagraphChild, RunChild, Table, TableCell,
-    TableCellContent, TableChild, TableRowChild,
+    DocumentChild, Docx, DrawingData, Level, Numberings, Paragraph, ParagraphChild, Pic, RunChild,
+    Table, TableCell, TableCellContent, TableChild, TableRowChild,
 };
 use std::collections::HashMap;
 use std::path::Path;
@@ -74,6 +78,23 @@ fn document_pages(docx: &Docx) -> Vec<Page> {
                 match marker {
                     Some(m) => b.list_item(format!("{m}{}", paragraph_text(p)), size),
                     None => b.paragraph(paragraph_text(p), size),
+                }
+                // Images embedded in this paragraph follow its text in flow.
+                for pic in paragraph_pics(p) {
+                    let Some((_, path, img, _)) = docx.images.iter().find(|(id, ..)| id == &pic.id)
+                    else {
+                        continue;
+                    };
+                    if img.0.is_empty() {
+                        continue;
+                    }
+                    let (w_emu, h_emu) = pic.size;
+                    b.image(
+                        img.0.clone(),
+                        emu_to_pt(w_emu),
+                        emu_to_pt(h_emu),
+                        mime_from_path(path),
+                    );
                 }
             }
             DocumentChild::Table(t) => {
@@ -140,6 +161,45 @@ fn resolve_level(n: &Numberings, num_id: usize, ilvl: usize) -> Option<&Level> {
 /// integer (docx-rs's public `Serialize` contract); defaults to 1.
 fn level_start(level: &Level) -> Option<u64> {
     serde_json::to_value(&level.start).ok()?.as_u64()
+}
+
+/// Pictures embedded in a paragraph's runs (inline or anchored `w:drawing`s).
+fn paragraph_pics(p: &Paragraph) -> Vec<&Pic> {
+    let mut pics = Vec::new();
+    for child in &p.children {
+        if let ParagraphChild::Run(run) = child {
+            for rc in &run.children {
+                if let RunChild::Drawing(drawing) = rc {
+                    if let Some(DrawingData::Pic(pic)) = &drawing.data {
+                        pics.push(pic);
+                    }
+                }
+            }
+        }
+    }
+    pics
+}
+
+/// EMU (English Metric Units, 914400 per inch) → PDF points (72 per inch).
+fn emu_to_pt(emu: u32) -> f32 {
+    emu as f32 / 12700.0
+}
+
+/// MIME type from a `word/media/imageN.ext` path's extension.
+fn mime_from_path(path: &str) -> String {
+    let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "tif" | "tiff" => "image/tiff",
+        "webp" => "image/webp",
+        "emf" => "image/x-emf",
+        "wmf" => "image/x-wmf",
+        _ => "application/octet-stream",
+    }
+    .to_string()
 }
 
 /// Concatenate a paragraph's run text.
@@ -275,10 +335,11 @@ fn table_rows_spanned(t: &Table) -> Vec<Vec<SpanCell>> {
 mod tests {
     use super::*;
     use docparse_core::ir::Element;
+    use docparse_core::ir::ImageKind;
     use docparse_core::synth::PageBuilder;
     use docx_rs::{
-        AbstractNumbering, IndentLevel, LevelJc, LevelText, NumberFormat, Numbering, NumberingId,
-        Run, Start, TableRow, VMergeType,
+        AbstractNumbering, Image, IndentLevel, LevelJc, LevelText, NumberFormat, Numbering,
+        NumberingId, Pic, Png, Run, Start, TableRow, VMergeType,
     };
 
     fn cell(text: &str) -> TableCell {
@@ -391,6 +452,49 @@ mod tests {
         assert!(table.rows[1][0].merged);
         assert_eq!(table.rows[1][0].text, "A", "covered text replicated");
         assert_eq!(table.rows[1][1].text, "c2");
+    }
+
+    // TC-IMG: an inline drawing resolves through docx.images (rId → bytes) into
+    // an ImageChunk on the page, with the source MIME and EMU→pt sizing.
+    #[test]
+    fn paragraph_drawing_becomes_image_element() {
+        let png = vec![137u8, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]; // PNG signature + payload
+        let pic = Pic::new_with_dimensions(png.clone(), 200, 100)
+            .id("rIdImg1")
+            .size(914400, 457200); // 1in × 0.5in in EMU
+        let docx = Docx::new().add_paragraph(Paragraph::new().add_run(Run::new().add_image(pic)));
+        // Register the media bytes the reader would have loaded for this rId.
+        let mut docx = docx;
+        docx.images.push((
+            "rIdImg1".to_string(),
+            "word/media/image1.png".to_string(),
+            Image(png.clone()),
+            Png(png.clone()),
+        ));
+
+        let pages = document_pages(&docx);
+        let img = pages
+            .iter()
+            .flat_map(|p| &p.elements)
+            .find_map(|e| match e {
+                Element::Image(i) => Some(i),
+                _ => None,
+            })
+            .expect("an image element is produced");
+        assert_eq!(img.kind, ImageKind::Encoded);
+        assert_eq!(img.data, png);
+        assert_eq!(img.data_media_type.as_deref(), Some("image/png"));
+        // 1in wide → 72pt; 0.5in tall → 36pt (within rounding).
+        assert!(
+            (img.bbox.width() - 72.0).abs() < 1.0,
+            "w={}",
+            img.bbox.width()
+        );
+        assert!(
+            (img.bbox.height() - 36.0).abs() < 1.0,
+            "h={}",
+            img.bbox.height()
+        );
     }
 
     // TC-01: bullet vs ordered marker; ordered counter advances; plain → None.

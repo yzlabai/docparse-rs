@@ -125,6 +125,10 @@ pub enum ImageKind {
     Rgb8,
     /// Undecoded JPEG file bytes (DCTDecode passthrough).
     Jpeg,
+    /// Already-encoded image file bytes in some other format (PNG/GIF/… — the
+    /// shape DOCX/PPTX/HTML media arrive in). [`ImageChunk::data_media_type`]
+    /// names the format; export/embed pass `data` through verbatim.
+    Encoded,
 }
 
 /// A raster image region. `data` carries the pixel payload only for
