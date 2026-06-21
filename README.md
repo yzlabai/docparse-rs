@@ -32,6 +32,7 @@ docparse-rs turns **PDF · DOCX · HTML · XLSX · PPTX · Markdown · CSV · SR
 - 🔌 **Four faces, one output** — CLI / library / MCP (stdio) / REST, **byte-identical across all**
 - 📍 **RAG-native citations** — every chunk carries page + bbox + heading breadcrumbs + `section_id`; `locate(x, y)` reverse lookup, 100% coverage
 - 🌲 **Document structure tree** — nested sections (title/level/page/bbox) for agentic navigation (`-f outline`, MCP `outline`); chunks carry `section_id` back into the tree
+- 🖼️ **Figures as retrievable chunks** — embedded images (PDF + DOCX) become `image` chunks: caption + surrounding context fill the searchable `text`, while `file`/base64 + page + bbox let RAG render & cite them. Caption binds the adjacent in-document "Figure N" line for free; `--vlm-describe` upgrades it to a neural description
 - 📦 **OKF knowledge bundles** — first-class [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf) producer (`-f okf`): structure tree → vendor-neutral, git-native Markdown bundle; citable (page+bbox), deterministic (byte-identical, no wall clock), one binary — no Python/JVM/service. Also MCP `export_okf` / REST `?format=okf`
 - 🔍 **In-process OCR** — `--ocr` runs ONNX on `tract` (PP-OCRv6 tiny by default; offers to fetch ~7 MB on first use); digital pages never touch a model; CCITT G3/G4 fax + JBIG2 scans covered
 - 🧠 **Embedded models, opt-in** — merged-cell table structure, formula→LaTeX, full-page transcription (UniRec-0.1B), plus PP-DocLayoutV2 / DocLayout-YOLO layout
@@ -88,9 +89,10 @@ docparse hard.pdf --layout --layout-model models/layout-ppv2/PP-DoclayoutV2_simp
 docparse doc.pdf  --table-model models/unirec                # merged-cell table structure (in-process, no service)
 docparse doc.pdf  --formula-model models/unirec              # formula → LaTeX
 docparse doc.pdf  --transcribe-model models/unirec           # full-page transcription (zh/en hard layouts & scans)
-docparse doc.pdf  --vlm-describe --vlm-url URL --vlm-model M # figure captions via an OpenAI-compatible VLM
+docparse doc.pdf  --vlm-describe --vlm-url URL --vlm-model M # figure captions via an OpenAI-compatible VLM (written onto each image chunk)
 docparse doc.pdf  --vlm-tables   --vlm-url URL --vlm-model M # VLM table re-extraction (failures keep the deterministic grid)
-docparse doc.pdf  --image-dir imgs/                          # export embedded images (JSON "file" / Markdown ![]())
+docparse doc.pdf  --image-dir imgs/ -f chunks               # export images + emit them as RAG image chunks (caption + context, file/bbox)
+docparse doc.pdf  --image-dir imgs/                          # export embedded images (JSON "file" / Markdown ![alt]())
 docparse input.pdf --quality --profile --route-plan          # quality / per-page profile / routing (JSON on stderr)
 ```
 </details>

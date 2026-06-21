@@ -53,6 +53,7 @@ space. Models are optional enhancements — digital documents never invoke one.
 | Formulas → LaTeX | ✅ (`--formula-model`) |
 | Macro reading-order rerank (complex / CJK layouts) | ✅ (`--layout`, `--transcribe-model`) |
 | Image export / base64 embed | ✅ (`--image-dir`, `--image-embed`) |
+| Figures as retrievable RAG chunks (caption + context, file/bbox) | ✅ (`-f chunks`; `--vlm-describe` for neural captions) |
 | Quality / routing diagnostics (the self-check loop) | ✅ (`--quality`, `--profile`, `--route-plan`) |
 
 ## Step-by-Step Instructions
@@ -112,7 +113,7 @@ docparse report.pdf -f chunks   -o /tmp/report.chunks.json
 ```jsonc
 {
   "id": 0,
-  "kind": "paragraph",          // heading | paragraph | table | code | list_item
+  "kind": "paragraph",          // heading | paragraph | table | code | list_item | image
   "text": "…",
   "page": 1,                     // 1-based
   "bbox": { "x0": 72.0, "y0": 690.1, "x1": 523.4, "y1": 705.8 },
@@ -127,6 +128,13 @@ docparse report.pdf -f chunks   -o /tmp/report.chunks.json
   to the same convention.
 - **Citation:** `page` + `bbox` point straight back to the source location;
   `heading_path` gives each chunk its section context for retrieval/filtering.
+- **Image chunks** (`"kind": "image"`, PDF + DOCX): the page-covering figures.
+  `text` carries the caption + surrounding context (the searchable field), and an
+  `image` object carries `{ file?, data_base64?, media_type?, caption?, caption_source? }`
+  for rendering & citation. Caption binds the adjacent "Figure N" line for free
+  (`caption_source: "caption-line"`); `--vlm-describe` writes a neural description
+  (`"vlm:<model>"`). Pass `--image-dir <dir>` (or `--image-embed`) so the chunk's
+  `image.file`/`data_base64` is populated for the consumer to display.
 - In `-f json`, elements replaced by a model carry a `source` tag
   (`ocr:ppocr`, `table:unirec-0.1b`, `formula:unirec-0.1b`, `vlm:<model>`,
   `layout:<model>`) so provenance stays visible.
@@ -227,7 +235,9 @@ docparse doc.pdf -f markdown --vlm-describe --vlm-url … --vlm-model …   # ca
 ```
 
 `--vlm-tables` often beats the geometric/local table extractor on the hardest
-tables; `--vlm-describe` captions figures (injected as positioned text).
+tables; `--vlm-describe` captions figures — the description is written onto each
+figure's image chunk (`image.caption`, `caption_source: "vlm:<model>"`) and
+surfaces in markdown alt text, so `-f chunks` figures become richly searchable.
 
 ## Other interfaces (same parse, byte-identical output)
 

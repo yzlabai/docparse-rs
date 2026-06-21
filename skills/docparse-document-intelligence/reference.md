@@ -43,13 +43,13 @@ output formats are shared by every backend.
 | `--table-model DIR` | Re-extract detected tables' structure with embedded UniRec-0.1B (renders each table region). | **PDF only.** Resolves merged cells / multi-row headers in-process, no service. `source: table:unirec-0.1b`; failures keep the geometric grid. |
 | `--formula-model DIR` | Display formulas → LaTeX with UniRec-0.1B. | **PDF only.** Formula regions from the layout model. `source: formula:unirec-0.1b`. |
 | `--transcribe-model DIR` | Re-recognize whole pages with UniRec (layout regions read in order, replacing page text). | **PDF only.** The route for design/CJK layouts geometry can't order; trades away line-level positions (chunks carry region bboxes). |
-| `--vlm-describe` | Caption sizable figures with a VLM (renders figure regions). | **PDF only.** Needs `--vlm-url` + `--vlm-model`. Captions injected as positioned text, `source: vlm:<model>`. |
+| `--vlm-describe` | Caption sizable figures with a VLM (renders figure regions). | **PDF only.** Needs `--vlm-url` + `--vlm-model`. The caption is written onto each figure's image chunk (`image.caption`, `caption_source: vlm:<model>`) and shown as markdown alt text. |
 | `--vlm-tables` | Re-extract table structure with a VLM. | **PDF only.** Needs `--vlm-url` + `--vlm-model`. Often best on the hardest tables; failures keep the deterministic grid. |
 | `--vlm-url URL` | OpenAI-compatible base URL (vLLM / LM Studio / cloud), e.g. `http://127.0.0.1:8000`. | Required by `--vlm-*`. |
 | `--vlm-model NAME` | Vision model name as the service knows it. | Required by `--vlm-*`. |
 | `--vlm-api-key TOKEN` | Bearer token, if the service requires one. | Optional. |
 | `--image-embed` | Embed image payloads as base64 in JSON (`data_base64` + `data_media_type`). | Decodes embedded images ≥16 px a side. |
-| `--image-dir DIR` | Export embedded raster images (≥16 px) to `DIR` as JPEG/PNG; JSON gains a `file` path, Markdown references them. | **PDF only.** |
+| `--image-dir DIR` | Export embedded images to `DIR` (PDF rasters ≥16 px as JPEG/PNG; DOCX media verbatim). JSON/chunks gain a `file` path, Markdown references them, and `-f chunks` emits page-covering figures as `image` chunks (caption + context). | **PDF + DOCX.** |
 
 > PDF-only enhancers are silently skipped for non-PDF inputs.
 
