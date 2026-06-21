@@ -10,12 +10,14 @@
 //! First task — picture description: each sizable figure region is cropped
 //! from an on-demand page render (`docparse-raster`, works for embedded
 //! rasters *and* vector-drawn charts alike) and captioned by the model. The
-//! caption is injected at the figure's position so text/markdown/chunks all
-//! see it in reading order.
+//! caption is written back onto the figure's [`ImageChunk::caption`] (with
+//! `caption_source: "vlm:<model>"`), so the chunker folds it into that image's
+//! RAG chunk — figure and description stay one unit instead of a free-floating
+//! text block.
 
 use anyhow::{Context, Result};
 use base64::Engine;
-use docparse_core::ir::{BBox, Cell, Document, Element, TextChunk};
+use docparse_core::ir::{BBox, Cell, Document, Element};
 
 /// Minimum share of the page area for a figure to be worth a VLM call.
 const MIN_FIGURE_COVERAGE: f32 = 0.01;
@@ -99,8 +101,9 @@ impl VlmClient {
     }
 }
 
-/// Caption sizable figures and inject each caption as a positioned
-/// [`TextChunk`] (`source: "vlm:<model>"`). Returns the number of captions.
+/// Caption sizable figures, writing each description back onto its
+/// [`ImageChunk::caption`] (`caption_source: "vlm:<model>"`). The chunker then
+/// folds it into that image's RAG chunk. Returns the number of captions added.
 /// Per-figure failures are reported on stderr and skipped — the deterministic
 /// result always stands.
 pub fn annotate_pictures(
@@ -112,18 +115,21 @@ pub fn annotate_pictures(
     let mut annotated = 0usize;
     for page in &mut doc.pages {
         let page_area = (page.width * page.height).max(1.0);
-        let figures: Vec<BBox> = page
+        // Indices of gated figures — kept (not bboxes) so we can write the
+        // caption back onto the very element after the network round-trip.
+        let figure_idxs: Vec<usize> = page
             .elements
             .iter()
-            .filter_map(|e| match e {
-                Element::Image(i) => {
-                    let a = (i.bbox.x1 - i.bbox.x0) * (i.bbox.y1 - i.bbox.y0);
-                    (a / page_area >= MIN_FIGURE_COVERAGE).then_some(i.bbox)
+            .enumerate()
+            .filter_map(|(i, e)| match e {
+                Element::Image(im) => {
+                    let a = im.bbox.width() * im.bbox.height();
+                    (a / page_area >= MIN_FIGURE_COVERAGE).then_some(i)
                 }
                 _ => None,
             })
             .collect();
-        if figures.is_empty() {
+        if figure_idxs.is_empty() {
             continue;
         }
         let (w, h, rgb) = match raster.render_rgb(page.number.saturating_sub(1), RENDER_SCALE) {
@@ -133,36 +139,26 @@ pub fn annotate_pictures(
                 continue;
             }
         };
-        for bbox in figures {
-            let Some((cw, ch, crop)) = crop_region(
-                &rgb,
-                w as usize,
-                h as usize,
-                &bbox,
-                RENDER_SCALE,
-                page.height,
-            ) else {
+        let (page_h, page_no) = (page.height, page.number);
+        for i in figure_idxs {
+            let Element::Image(im) = &page.elements[i] else {
+                continue;
+            };
+            let bbox = im.bbox;
+            let Some((cw, ch, crop)) =
+                crop_region(&rgb, w as usize, h as usize, &bbox, RENDER_SCALE, page_h)
+            else {
                 continue;
             };
             match client.ask_about_image(&crop, cw as u32, ch as u32, DESCRIBE_PROMPT) {
                 Ok(text) => {
-                    page.elements.push(Element::Text(TextChunk {
-                        text: format!("[figure] {text}"),
-                        bbox,
-                        font_size: 10.0,
-                        font: None,
-                        page: page.number,
-                        // Model output: capped confidence, audited source.
-                        confidence: 0.8,
-                        bold: false,
-                        hidden: false,
-                        source: Some(format!("vlm:{}", client.model())),
-                        group: None,
-                        tag: None,
-                    }));
+                    if let Element::Image(im) = &mut page.elements[i] {
+                        im.caption = Some(text);
+                        im.caption_source = Some(format!("vlm:{}", client.model()));
+                    }
                     annotated += 1;
                 }
-                Err(e) => eprintln!("vlm: describe failed on page {}: {e:#}", page.number),
+                Err(e) => eprintln!("vlm: describe failed on page {page_no}: {e:#}"),
             }
         }
     }

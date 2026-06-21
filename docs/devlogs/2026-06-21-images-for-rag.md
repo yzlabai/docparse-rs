@@ -27,6 +27,17 @@
 - 真实回归 `1901.03003.pdf -f chunks --image-dir`：120 chunks 中 11 个 image chunk，caption 正确从 "Figure 2./3." 绑定、file 导出、section_id 命中。
 - 文本三件套（lorem/bialetti/1901）输出未变。clippy 零 warning，fmt 通过。
 
-## 提交 2：VLM caption 写回（待续）
+## 提交 2：VLM caption 写回 + 输出层 caption
+
+**改动**
+- [vlm/lib.rs](../../crates/docparse-vlm/src/lib.rs)：`annotate_pictures` 不再 push 游离 `Element::Text("[figure] …")`，而是把描述**写回对应 `ImageChunk.caption`**（`caption_source: "vlm:<model>"`）。改为按 element 索引遍历，网络往返后回写同一元素。`TextChunk` import 移除。
+- [output.rs](../../crates/docparse-core/src/output.rs)：旧路径下 VLM 文本会出现在 text/markdown，写回后需在输出层显式呈现 caption：
+  - markdown：caption 作为 `![alt](file)` 的 alt；无 file 但有 caption → `*caption*` 一行，不丢描述。
+  - text：caption 单独成行。
+  - `PageContent.images` 过滤放宽为 `file.is_some() || caption.is_some()`。
+
+**效果**：图与描述合一 —— `--vlm` 的 caption 经 commit 1 的链路自动进 image chunk（chunk 层 `vlm_caption_on_imagechunk_wins` 已覆盖），同时 markdown/text 仍可见。
+
+**测试**：output 3 个新单测（alt 文本、caption-only 斜体行、无 file 无 caption 不渲染）。全绿，clippy/fmt 通过。注：`annotate_pictures` 本身需 raster+网络，沿用既有惯例不单测（与 `refine_tables` 一致），契约由 chunk/output 层单测锁定。
 
 ## 提交 3：DOCX 抽图（待续）

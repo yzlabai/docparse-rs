@@ -26,11 +26,12 @@ fn page_tables(page: &Page) -> Vec<&Table> {
 }
 
 /// Per-page reconstruction: text blocks (table content excluded, headers/footers
-/// dropped, paragraphs grouped) plus the page's tables and exported images.
+/// dropped, paragraphs grouped) plus the page's tables and renderable images.
 struct PageContent<'a> {
     blocks: Vec<Block>,
     tables: Vec<&'a Table>,
-    /// Images that were exported to disk (`file` set) — referenced in Markdown.
+    /// Images worth rendering: exported to disk (`file` set, referenced in
+    /// Markdown) or carrying a caption (a VLM description to surface).
     images: Vec<&'a crate::ir::ImageChunk>,
 }
 
@@ -45,7 +46,7 @@ fn document_content(doc: &Document) -> Vec<PageContent<'_>> {
                 .elements
                 .iter()
                 .filter_map(|e| match e {
-                    Element::Image(i) if i.file.is_some() => Some(i),
+                    Element::Image(i) if i.file.is_some() || i.caption.is_some() => Some(i),
                     _ => None,
                 })
                 .collect(),
@@ -68,6 +69,12 @@ pub fn to_text(doc: &Document) -> String {
                 s.push('\n');
             }
             s.push('\n');
+        }
+        for img in &pc.images {
+            if let Some(c) = &img.caption {
+                s.push_str(c.trim());
+                s.push('\n');
+            }
         }
         s.push('\n');
     }
@@ -123,8 +130,20 @@ pub fn to_markdown(doc: &Document) -> String {
             md.push('\n');
         }
         for img in &pc.images {
-            if let Some(f) = &img.file {
-                md.push_str(&format!("![image p{}]({})\n\n", img.page, f));
+            // Caption (e.g. a VLM description) becomes the image's alt text;
+            // a caption-only image (no exported file) still surfaces its text.
+            let alt = img
+                .caption
+                .as_deref()
+                .map(|c| c.replace(['\n', '\r'], " ").replace(']', ")"))
+                .unwrap_or_else(|| format!("image p{}", img.page));
+            match &img.file {
+                Some(f) => md.push_str(&format!("![{alt}]({f})\n\n")),
+                None => {
+                    if img.caption.is_some() {
+                        md.push_str(&format!("*{}*\n\n", alt.trim()));
+                    }
+                }
             }
         }
     }
@@ -156,4 +175,72 @@ fn markdown_table(table: &Table) -> String {
         }
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::{BBox, ImageChunk, ImageKind, Page};
+
+    fn img(file: Option<&str>, caption: Option<&str>) -> Element {
+        Element::Image(ImageChunk {
+            bbox: BBox {
+                x0: 72.0,
+                y0: 400.0,
+                x1: 500.0,
+                y1: 700.0,
+            },
+            page: 1,
+            width_px: 100,
+            height_px: 100,
+            turns: 0,
+            kind: ImageKind::None,
+            data: Vec::new(),
+            file: file.map(Into::into),
+            data_base64: None,
+            data_media_type: None,
+            caption: caption.map(Into::into),
+            caption_source: caption.map(|_| "vlm:test".into()),
+        })
+    }
+
+    fn doc(elements: Vec<Element>) -> Document {
+        Document {
+            source: "t".into(),
+            provenance: None,
+            pages: vec![Page {
+                number: 1,
+                width: 612.0,
+                height: 792.0,
+                elements,
+            }],
+        }
+    }
+
+    #[test]
+    fn markdown_uses_caption_as_alt_text() {
+        let md = to_markdown(&doc(vec![img(
+            Some("assets/fig.png"),
+            Some("A bar chart of revenue."),
+        )]));
+        assert!(
+            md.contains("![A bar chart of revenue.](assets/fig.png)"),
+            "got: {md}"
+        );
+    }
+
+    #[test]
+    fn caption_only_image_renders_as_italic_line() {
+        // No exported file, but a VLM caption — surface it rather than drop it.
+        let md = to_markdown(&doc(vec![img(None, Some("A flow diagram."))]));
+        assert!(md.contains("*A flow diagram.*"), "got: {md}");
+        let txt = to_text(&doc(vec![img(None, Some("A flow diagram."))]));
+        assert!(txt.contains("A flow diagram."), "got: {txt}");
+    }
+
+    #[test]
+    fn image_without_file_or_caption_is_not_rendered() {
+        let md = to_markdown(&doc(vec![img(None, None)]));
+        assert!(!md.contains("!["), "no image syntax: {md}");
+    }
 }
