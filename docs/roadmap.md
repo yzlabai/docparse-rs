@@ -6,7 +6,9 @@
 > - 已完成工作的验证与设计回顾见 [phase-1-summary.md](phase-1-summary.md)。
 > - 大格局背景（开源工具全景、平台架构、Rust 取舍）见 [refer/document-parsing-open-source-tools-research-2026.md](refer/document-parsing-open-source-tools-research-2026.md)。
 > - 协作约定见 [../CLAUDE.md](../CLAUDE.md) 与 [../AI_AGENT_DEV_SPEC.md](../AI_AGENT_DEV_SPEC.md)。
-> - 当前状态/记分牌/待办/经验见 [status.md](status.md)；**接入 Agent/RAG 系统**见 [agent-integration.md](agent-integration.md)。
+> - 当前状态/记分牌/待办/经验见 [status.md](status.md)；系统架构见 [architecture.md](architecture.md)；功能/能力清单见 [capabilities.md](capabilities.md)；**接入 Agent/RAG 系统**见 [agent-integration.md](agent-integration.md)。
+>
+> **本文是战略/愿景层（做什么、为什么），写于早期且按需更新；具体进度以 [status.md](status.md) 为准——两者冲突时信 status.md。**
 
 ---
 
@@ -141,7 +143,7 @@ flowchart TB
 | 2 | **PDF 确定性后端** | 内容流解释器 + 字体层 + 精确坐标，纯 Rust 复刻 ODL 快路径 | ✅ 内容流+字体层成熟（AFM/Encoding/CMap/字距，M1）；clean LTR 达 ODL/Docling 水平 | veraPDF-parser（`pd.font`/CMap） |
 | 3 | **版面与阅读顺序** | XY-cut 多栏排序、页眉页脚/水印识别、段落聚合 | ✅ XY-cut+段落聚合+页眉页脚+去连字（M3）；CJK/最难双栏首页属确定性天花板（→模块 8）；opt-in 版面模型双后端 DocLayout-YOLO / **PP-DocLayoutV2**（25 类+原生读序，Phase 7，杂版面端到端表 ≈3×） | ODL XY-Cut++ |
 | 4 | **语义结构层** | 表格识别、列表层级、标题分级——把 chunk 升维成结构。最大、最有价值、最难 | ✅ 表格四检测器（bordered/ruled/cluster/borderless，M4+N4）+ 标题分级；多级表头/合并单元格属神经域 | veraPDF-wcag-algs（`TableBorderConsumer`/`ClusterTableConsumer`） |
-| 5 | **多格式后端** | DOCX/PPTX/XLSX/HTML，各 `impl DocumentParser` 汇入同一 IR | ✅ DOCX/HTML 已接入同一 IR（M5）；PPTX/XLSX 未做 | 报告 §10.6 `parser-ooxml`/`parser-web` |
+| 5 | **多格式后端** | 各 `impl DocumentParser` 汇入同一 IR | ✅ **12 种格式全接入**：PDF/DOCX/HTML/XLSX/PPTX/Markdown/CSV/SRT·VTT/LaTeX/EML/图像/AsciiDoc（含各格式内嵌图片→image chunk） | 报告 §10.6 `parser-ooxml`/`parser-web` |
 | 6 | **输出与 RAG** | 序列化 + 结构化切块 + chunk↔页码/bbox 双向引用定位 | ✅ JSON/MD/Text + 结构化切块 + chunk↔bbox 双向引用（M6），引用率 100% | 报告 §10.6 `document-export`/`document-chunk` |
 | 7 | **质量检测与回退** | 覆盖率/乱码率/阅读顺序异常评分，决定是否触发外接复核 | ✅ 评分（coverage/garbled）+ 按页路由（M7）；reading-order 异常分留空 | 报告 §8 / §10.8 |
 | 8 | **外部 AI 服务接入** | OCR / 大模型 / VLM 作**可选增强**：版本化 capability（格式/元素/语言/设备/版本）+ 统一边界，按页触发补难例，主流程可无之独立运行 | ✅ 边界（M7）+ 真实 enhancer：ONNX 内嵌 PP-OCRv4 经 tract 纯 Rust 推理（N3/P4），按页路由、数字页零模型 | 报告 §10.5–§10.6 `parser-plugins` |
@@ -226,4 +228,4 @@ flowchart TD
   Q -->|供 agent/RAG 调用| E[P3: 服务化接口 + 切块溯源 + AI 可插拔增强]
 ```
 
-进度（2026-06-12）：**M1–M7、N1–N5、Phase 4（G1–G9）、Phase 5（H1–H7）、Phase 6（B1–B5）全部下结论**——含 G3-R（`--table-model` 内嵌 UniRec-0.1B 表结构重抽）、`--formula-model`、`--transcribe-model`、MCP/REST 全增强透传、IR 0.7.0（span 语义+图片 base64）；Phase 5 = CCITT/JBIG2 扫描解码、cls 旋转校正、双栏左列重排、精确 TEDS、隐藏文本/读序异常分（两项负结论=架构边界）；Phase 6 = OmniDocBench 提分探查（**主负结论**：学术表 0.52 是 UniRec-0.1B 固定输入的真实天花板，便宜/保速旋钮无解；落地 B1 评测对称 + B2 退化抢救零回归）。clippy 零 warning、四接口任意开关组合字节一致；记分牌见 §6 与 [status.md](status.md)。**待办**：发布（PyPI/crates.io，候账号）、arXiv 千份/fuzz 24h（资源/排期）、行内公式/JATS/RTL-韩文（VLM 域）；难表真杠杆=更大表模型或 `--vlm-tables` 服务（内嵌+保速域外）。详见 [status.md](status.md)；阶段计划见 [plans/](plans/)；devlog 见 [devlogs/](devlogs/)。
+**进度真源是 [status.md](status.md)**（逐 Phase 维护，远比本节实时）：P0–P4 + 后续 Phase 5–14（扫描解码/版面双后端/PP-OCRv6/CLI 进度与批量/速度质量三杠杆/结构树/OKF/机器可读契约/图片→RAG）均已下结论。阶段计划见 [plans/](plans/)，过程记录见 [devlogs/](devlogs/)，能力清单见 [capabilities.md](capabilities.md)。本节不再复述进度，避免与 status.md 漂移。

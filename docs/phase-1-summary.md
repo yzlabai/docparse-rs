@@ -1,5 +1,7 @@
 # 阶段总结 · Phase 1：可用的纯 Rust PDF 文本抽取骨架
 
+> **📁 已归档历史快照（2026-06-09）**——记录项目奠基阶段，**不反映当前状态**。当前进度见 [status.md](status.md)，架构见 [architecture.md](architecture.md)，能力见 [capabilities.md](capabilities.md)。保留作起源叙事。
+>
 > 时间：2026-06-09 · 状态：✅ 端到端可用，6 单测通过，零 warning
 > 代码规模：1,501 行 Rust（3 crate，11 源文件）
 

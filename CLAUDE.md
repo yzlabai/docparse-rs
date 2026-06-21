@@ -4,7 +4,7 @@
 >
 > **代码现状永远是真源**：本文件描述的结构/不变量若与代码不符，以代码为准并回写本文件。
 
-docparse-rs 是纯 Rust 的多格式文档解析系统，定位"**速度快、质量好**"：主流程走"结构提取"快路径不渲染像素；难页经路由用纯 Rust 渲染器按需画页、交给神经 enhancer（默认关闭）。从文档抽取带位置的结构化内容（文本/版面/阅读顺序 → JSON/Markdown/Text）。背景与里程碑见 [README.md](README.md)、[docs/phase-1-summary.md](docs/phase-1-summary.md)；怎么迭代见 [docs/iteration-guide.md](docs/iteration-guide.md)。
+docparse-rs 是纯 Rust 的多格式文档解析系统，定位"**速度快、质量好**"：主流程走"结构提取"快路径不渲染像素；难页经路由用纯 Rust 渲染器按需画页、交给神经 enhancer（默认关闭）。从文档抽取带位置的结构化内容（文本/版面/阅读顺序 → JSON/Markdown/Text/RAG chunks/结构树/OKF）。**系统架构见 [docs/architecture.md](docs/architecture.md)、功能/能力清单见 [docs/capabilities.md](docs/capabilities.md)**（两份权威总览）；背景见 [README.md](README.md)；怎么迭代见 [docs/iteration-guide.md](docs/iteration-guide.md)。
 
 ## 0. 开发流程（开工前先判复杂度，再选路径）
 
@@ -122,10 +122,12 @@ Cargo workspace，十七个 crate（core/pdf/docx/html/ocr/raster/vlm/xlsx/pptx/
 
 ## 7. 文档落点（SDD 八步的项目映射，详见通用规范 §4）
 
-`docs/` 现有 `roadmap.md`（战略）、`plans/beating-docling.md`（执行里程碑 M1–M7）、`iteration-guide.md`、`phase-1-summary.md`、`devlogs/`。新工作按需补 `docs/{plans,testcases,testresults,devlogs,modules,architecture,lessonlearned}/`，命名与模板见 AI_AGENT_DEV_SPEC §4–5。
+`docs/` 权威总览：`architecture.md`（系统架构）、`capabilities.md`（功能/能力清单）、`status.md`（进度/记分牌单一真源）、`roadmap.md`（战略/愿景）、`agent-integration.md` + `agent-enhancement-decisions.md`（接入与增强决策）、`iteration-guide.md`（怎么开发）。历史：`plans/`（阶段计划）、`devlogs/`（过程记录）、`testresults/`（评测）、`refer/`/`analysis/`（调研/论证）、`phase-1/2-summary.md`（已归档奠基快照）。新工作按需补 `docs/{plans,testresults,devlogs}/`，命名与模板见 AI_AGENT_DEV_SPEC §4–5。
 
 ## 8. 路线图与状态
 
-- **战略**：[docs/roadmap.md](docs/roadmap.md)
+- **架构总览**：[docs/architecture.md](docs/architecture.md) ← crate 分层/数据流/IR/增强子系统/四接口
+- **功能能力**：[docs/capabilities.md](docs/capabilities.md) ← 输入/输出格式、CLI、图片→RAG、模型矩阵
+- **战略 / 愿景**：[docs/roadmap.md](docs/roadmap.md)
 - **当前状态 / 记分牌 / 待办 / 跨阶段经验教训**：[docs/status.md](docs/status.md) ← 单一真源，开工前先读
 - **执行里程碑历史**：[docs/plans/](docs/plans/) 各计划 + [docs/devlogs/](docs/devlogs/)

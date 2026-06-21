@@ -1,5 +1,7 @@
 # 阶段总结 · Phase 2：M1–M7 近期执行层（对标 Docling）
 
+> **📁 已归档历史快照（2026-06-09）**——记录 M1–M7 执行层，**不反映当前状态**（项目已推进到 Phase 14+，见 [status.md](status.md)）。架构见 [architecture.md](architecture.md)，能力见 [capabilities.md](capabilities.md)。保留作历史叙事。
+>
 > 时间：2026-06-09 · 状态：✅ 近期执行层 M1–M7 全部完成 · 41 单测、clippy 零 warning、逐字节确定性
 > 代码规模：4,088 行 Rust（5 crate）；本阶段 7 个里程碑提交。承接 [phase-1-summary.md](phase-1-summary.md)。
 

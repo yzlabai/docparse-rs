@@ -1,6 +1,7 @@
 # 迭代说明 · Iteration Guide
 
 面向在 docparse-rs 上继续开发的人：项目怎么长、改动落在哪、怎么验证、怎么加新能力。
+系统全貌见 [architecture.md](architecture.md)；能力清单见 [capabilities.md](capabilities.md)；进度见 [status.md](status.md)；协作约定见 [../CLAUDE.md](../CLAUDE.md)。
 
 ---
 
@@ -8,9 +9,10 @@
 
 ```bash
 cargo build                 # 构建
-cargo test                  # 跑全部单测（当前 6 个）
-cargo build --release       # 优化构建（lto=thin）
-./target/release/docparse <file.pdf> -f json|markdown|text [-o out]
+cargo test                  # 全部单测（纯算法 + 端到端，目标全绿）
+cargo clippy --all-targets  # lint —— 零 warning
+cargo build --release       # 优化构建（lto=thin, codegen-units=1）
+./target/release/docparse <file> -f json|markdown|text|chunks|outline|okf [-o out]
 
 # 跨真实样例快速回归
 S=../opendataloader-pdf/samples/pdf
@@ -64,6 +66,8 @@ Document                                          [docparse-core/ir.rs]
 | 加新文件格式（DOCX/HTML） | 新建 crate `docparse-<fmt>`，实现 `DocumentParser`，在 `cli/main.rs` 注册表加一行 |
 | 加 CLI 选项 | `cli/main.rs` 的 `Cli` struct（clap derive） |
 
+> 完整落点表（含 OCR/版面/UniRec/VLM/chunk/outline/okf/MCP/REST 等）见 [../CLAUDE.md §2](../CLAUDE.md) 与 [architecture.md](architecture.md)。
+
 ---
 
 ## 3. 三类典型迭代怎么做
@@ -98,31 +102,11 @@ Document                                          [docparse-core/ir.rs]
 
 ---
 
-## 5. 路线图（按优先级）
+## 5. 路线图与进度
 
-> `[x]` 已完成 · `[ ]` 待办。前两项决定"读出文字"的覆盖面。
+本文不再内置路线图清单（曾经的 M1–M7 待办已全部完成，PPTX/XLSX、图片抽取、服务化、真实 enhancer 等均已落地）。**当前进度、记分牌、待办的单一真源是 [status.md](status.md)**；战略/愿景见 [roadmap.md](roadmap.md)；已实现能力清单见 [capabilities.md](capabilities.md)；阶段计划见 [plans/](plans/)，过程记录见 [devlogs/](devlogs/)。
 
-- [x] ToUnicode CMap 文本解码（CID 子集字体）
-- [x] 字形宽度（`Widths` / `W`/`DW`）+ 几何词重建
-- [x] MediaBox / Resources 的 Pages 树继承
-- [x] **标准 14 字体 AFM 度量** —— 内置 14 套 AFM 宽度表（`stdmetrics.rs`），无 `Widths` 时按字形名查宽度。参考 veraPDF `StandardFontMetrics`/`AFMParser`。
-- [x] 简单字体 `Encoding`/`Differences` + AGL —— 无 ToUnicode 时 code→字形名→Unicode（`encoding.rs` + `encoding_tables.rs`）。修复 `rectification` 连字丢失。
-- [x] 字间距/词间距操作符 `Tc`/`Tw`/`Tz` —— 位移公式 `tx=(Σw·Tfs+Tc·n+Tw·spaces)·Th`。详见 [devlogs/2026-06-09-m1-text-fidelity.md](devlogs/2026-06-09-m1-text-fidelity.md)。
-- [x] 段落聚合 —— `core::layout` 按垂直间距聚段，门控防糊表格（M3）。
-- [x] **语义层·有框表格** —— `core::table` 矢量线段→网格→单元格（M4，对照 wcag-algs 独立实现）。
-- [x] 更多格式 **DOCX / HTML** —— `docparse-docx`/`docparse-html`（M5）。
-- [x] **RAG 切块 + chunk↔bbox 引用** —— `core::chunk`（M6）。
-- [x] **质量路由 + 可插拔外接边界** —— `core::quality`/`core::enhance`（M7）。
-- [ ] 图片 XObject 像素抽取 —— 当前仅 `ImageChunk` 位置。
-- [ ] 语义层续：列表层级 / 无框表格 / 合并单元格 / 多栏列检测。
-- [ ] 更多格式 PPTX / XLSX；真实 enhancer 接入；服务化（REST/MCP）。
-
-> 近期执行层 M1–M7 已收官（见 [phase-2-summary.md](phase-2-summary.md)）。下一阶段计划见 [plans/next-iteration.md](plans/next-iteration.md)。
-
-### 怎么挑下一个任务
-- 想**量化"比 Docling 好"** → 评测集 + NID/TEDS/MHS 评分（next-iteration 最高优先）。
-- 想**供 agent 调用** → 服务化接口（REST/gRPC/MCP）。
-- 想**补难例** → 真实 enhancer（OCR/LLM）接入 `core::enhance` 边界。
+挑下一步：想量化质量→评测集 + NID/TEDS/MHS；想拓能力→看 status.md 的「待续」；想补难例→新增 `Enhancer` 接入 `core::enhance` 边界。
 
 ---
 

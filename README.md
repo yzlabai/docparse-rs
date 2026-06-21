@@ -178,7 +178,9 @@ Where the others win: Docling's neural layout has a higher ceiling on the hardes
 
 A Cargo workspace of **17 crates**. The key invariant: **`core` depends on no PDF library** — reading order and output are format-agnostic, so adding a format means implementing the `DocumentParser` trait plus one registry line.
 
-The heart of the project is a self-built **PDF content-stream interpreter** (graphics/text matrix state machine emitting positioned chunks — the layer ODL delegates to veraPDF) and a **font layer** (ToUnicode CMap / AFM / Encoding, independently implemented with veraPDF as the *algorithmic* reference). Neural models never enter the core — they attach per page through an `Enhancer` boundary, and only a hard page routed to a model is ever rendered (on demand, pure-Rust). See the [crates](crates/) and [roadmap →](docs/roadmap.md).
+The heart of the project is a self-built **PDF content-stream interpreter** (graphics/text matrix state machine emitting positioned chunks — the layer ODL delegates to veraPDF) and a **font layer** (ToUnicode CMap / AFM / Encoding, independently implemented with veraPDF as the *algorithmic* reference). Neural models never enter the core — they attach per page through an `Enhancer` boundary, and only a hard page routed to a model is ever rendered (on demand, pure-Rust).
+
+Full architecture (crate map · data flow · IR · model subsystem · four interfaces): [docs/architecture.md →](docs/architecture.md). Complete capability/feature reference: [docs/capabilities.md →](docs/capabilities.md). Status & scoreboard: [docs/status.md →](docs/status.md).
 
 ## 📦 Optional models
 

@@ -3,6 +3,8 @@
 > 面向把 docparse-rs 接入 **Agent / RAG / 自动化流水线** 的集成方。讲清楚：有哪些接入口、输入输出长什么样、坐标与引用怎么用、增强能力怎么按需开、典型接入模式。
 >
 > 设计身份（详见 [roadmap.md](roadmap.md)）：**纯 Rust 单二进制、零运行时依赖、确定性可复现、带坐标可引用**；模型（OCR/版面/表/公式/VLM）是**可选增强**，默认全关，数字文档不碰模型。
+>
+> 相关：系统架构 [architecture.md](architecture.md)；能力清单 [capabilities.md](capabilities.md)；**何时开哪种增强**（质量信号→决策矩阵）见 [agent-enhancement-decisions.md](agent-enhancement-decisions.md)。
 
 ## 1. 四种接入口（同一份解析、字节一致）
 
